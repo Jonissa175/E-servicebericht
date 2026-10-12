@@ -7,9 +7,9 @@
     trimOverlappingTimeEntries
   } from '../db/timeEntries';
   import { getReport } from '../db/reports';
-  import { updateManualTimeEntry } from '../clockActions';
+  import { addManualBreak, updateManualTimeEntry } from '../clockActions';
   import type { TimeEntry } from '../db/types';
-  import { computeDurationMinutes, formatDateDE, formatDurationMinutes, todayISODate } from '../utils/date';
+  import { addMinutesToTime, computeDurationMinutes, formatDateDE, formatDurationMinutes, todayISODate } from '../utils/date';
   import { exceedsMaxDailyWork } from '../utils/arbzg';
   import Icon from './Icon.svelte';
 
@@ -29,6 +29,13 @@
   let formStart = $state('');
   let formEnd = $state('');
   let formNote = $state('');
+  // "Pause abziehen"-Zusatz beim manuellen Nachtragen (s.u., applyPauseIfNeeded()) -
+  // bewusst nur eine Dauer statt eines eigenen Von/Bis-Felderpaars: die genaue
+  // Lage interessiert hier meist nicht, es reicht ein grober Vorgabewert
+  // (0,5 Std., bei Bedarf änderbar), die Pause wird automatisch mittig in den
+  // eingegebenen Zeitraum gelegt.
+  let formPauseEnabled = $state(false);
+  let formPauseHours = $state(0.5);
 
   async function load(): Promise<void> {
     loading = true;
@@ -45,9 +52,14 @@
 
   function resetForm(): void {
     formDate = todayISODate();
-    formStart = '';
-    formEnd = '';
+    // Vorbelegt mit einem typischen Arbeitstag (8-17 Uhr) statt leer - erspart
+    // bei den meisten nachträglichen Buchungen das Eintippen, bleibt aber
+    // natürlich frei änderbar.
+    formStart = '08:00';
+    formEnd = '17:00';
     formNote = '';
+    formPauseEnabled = false;
+    formPauseHours = 0.5;
     editingId = undefined;
     editingOriginal = undefined;
     showForm = false;
@@ -65,6 +77,12 @@
     formStart = entry.startTime ?? '';
     formEnd = entry.endTime ?? '';
     formNote = entry.note ?? '';
+    // Die "Pause abziehen"-Vorgabe gilt nur fürs Anlegen - beim Bearbeiten
+    // unabhängig vom vorherigen Formularzustand immer deaktiviert, damit nicht
+    // versehentlich erneut eine Pause aus dem bereits gespeicherten Eintrag
+    // herausgeschnitten wird.
+    formPauseEnabled = false;
+    formPauseHours = 0.5;
     showForm = true;
   }
 
@@ -94,6 +112,36 @@
     } else {
       await addTimeEntry(reportId, payload);
     }
+  }
+
+  /**
+   * Legt die "Pause abziehen"-Zeitspanne mittig in [startTime, endTime] -
+   * bei einer vorgegebenen Dauer (statt genauer Uhrzeiten) ist die Tagesmitte
+   * der plausibelste Standardort für eine Mittagspause. Liefert `undefined`,
+   * wenn die Pause nicht in den Zeitraum passt (länger oder genauso lang).
+   */
+  function centeredBreakWindow(startTime: string, endTime: string, breakMinutes: number): { start: string; end: string } | undefined {
+    const totalMinutes = computeDurationMinutes(startTime, endTime);
+    if (totalMinutes === undefined || breakMinutes <= 0 || breakMinutes >= totalMinutes) return undefined;
+    const offset = Math.floor((totalMinutes - breakMinutes) / 2);
+    const breakStart = addMinutesToTime(startTime, offset);
+    const breakEnd = addMinutesToTime(breakStart, breakMinutes);
+    return { start: breakStart, end: breakEnd };
+  }
+
+  /**
+   * Schneidet bei Bedarf die per Checkbox aktivierte Pause aus dem gerade
+   * gespeicherten Zeitraum heraus (siehe centeredBreakWindow() oben) - nutzt
+   * addManualBreak() (clockActions.ts), das dafür ohnehin schon die
+   * überschneidenden Einträge (hier: der eben gespeicherte Eintrag selbst)
+   * kürzt/splittet und einen eigenen, als Pause markierten Eintrag anlegt.
+   */
+  async function applyPauseIfNeeded(startTime: string | undefined, endTime: string | undefined): Promise<void> {
+    if (!formPauseEnabled || !startTime || !endTime) return;
+    const breakMinutes = Math.round(formPauseHours * 60);
+    const window = centeredBreakWindow(startTime, endTime, breakMinutes);
+    if (!window) return;
+    await addManualBreak(formDate, window.start, window.end);
   }
 
   async function save(): Promise<void> {
@@ -130,6 +178,7 @@
 
         await persistEntry(payload);
         await trimOverlappingTimeEntries(overlaps, startTime, endTime);
+        await applyPauseIfNeeded(startTime, endTime);
         resetForm();
         await load();
         onChanged();
@@ -138,6 +187,7 @@
     }
 
     await persistEntry(payload);
+    await applyPauseIfNeeded(startTime, endTime);
     resetForm();
     await load();
     onChanged();
@@ -227,7 +277,24 @@
         </label>
       </div>
       {#if previewDuration !== undefined}
-        <p class="duration-preview">Dauer: {formatDurationMinutes(previewDuration)}</p>
+        <p class="duration-preview">
+          Dauer: {formatDurationMinutes(previewDuration)}
+          {#if formPauseEnabled && formPauseHours > 0 && formPauseHours * 60 < previewDuration}
+            <span class="duration-net">
+              (abzüglich {formPauseHours} Std. Pause: {formatDurationMinutes(previewDuration - Math.round(formPauseHours * 60))})
+            </span>
+          {/if}
+        </p>
+      {/if}
+      <label class="checkbox-label">
+        <input type="checkbox" bind:checked={formPauseEnabled} />
+        Pause abziehen
+      </label>
+      {#if formPauseEnabled}
+        <label>
+          Pause (Std.)
+          <input type="number" inputmode="decimal" step="0.25" min="0.25" bind:value={formPauseHours} />
+        </label>
       {/if}
       <label>
         Notiz (optional)
@@ -359,6 +426,24 @@
     font-size: 0.85rem;
     color: var(--color-primary);
     font-weight: 600;
+  }
+
+  .duration-net {
+    color: var(--color-text-muted);
+    font-weight: 400;
+  }
+
+  .form label.checkbox-label {
+    flex-direction: row;
+    align-items: center;
+    gap: var(--space-2);
+    font-size: 0.95rem;
+    color: var(--color-text);
+  }
+
+  .checkbox-label input[type='checkbox'] {
+    width: auto;
+    min-height: auto;
   }
 
   .form-actions {
