@@ -114,6 +114,24 @@ export function subtractTimeRange(a: TimeRange, b: TimeRange): TimeRange[] {
   return ranges;
 }
 
+/**
+ * Legt eine Pause mit vorgegebener Dauer (statt genauer Uhrzeiten) mittig in
+ * [startTime, endTime] - bei einer vorgegebenen Dauer ist die Tagesmitte der
+ * plausibelste Standardort für eine Mittagspause. Genutzt von der
+ * vereinfachten "Pause abziehen"-Eingabe (Zeiten-Tab eines Berichts,
+ * Projekt-Zeit-Nacherfassung in der Auswertung). Liefert `undefined`, wenn
+ * die Pause nicht in den Zeitraum passt (länger oder genauso lang) oder die
+ * Zeiten ungültig sind.
+ */
+export function centeredBreakWindow(startTime: string, endTime: string, breakMinutes: number): TimeRange | undefined {
+  const totalMinutes = computeDurationMinutes(startTime, endTime);
+  if (totalMinutes === undefined || breakMinutes <= 0 || breakMinutes >= totalMinutes) return undefined;
+  const offset = Math.floor((totalMinutes - breakMinutes) / 2);
+  const breakStart = addMinutesToTime(startTime, offset);
+  const breakEnd = addMinutesToTime(breakStart, breakMinutes);
+  return { start: breakStart, end: breakEnd };
+}
+
 /** Formatiert Minuten als "H:MM Std." für die Anzeige (z.B. "7:30 Std."). */
 export function formatDurationMinutes(totalMinutes: number | undefined | null): string {
   const minutesTotal = Math.max(0, totalMinutes ?? 0);

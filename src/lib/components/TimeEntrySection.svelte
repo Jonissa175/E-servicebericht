@@ -9,7 +9,7 @@
   import { getReport } from '../db/reports';
   import { addManualBreak, updateManualTimeEntry } from '../clockActions';
   import type { TimeEntry } from '../db/types';
-  import { addMinutesToTime, computeDurationMinutes, formatDateDE, formatDurationMinutes, todayISODate } from '../utils/date';
+  import { centeredBreakWindow, computeDurationMinutes, formatDateDE, formatDurationMinutes, todayISODate } from '../utils/date';
   import { exceedsMaxDailyWork } from '../utils/arbzg';
   import Icon from './Icon.svelte';
 
@@ -112,21 +112,6 @@
     } else {
       await addTimeEntry(reportId, payload);
     }
-  }
-
-  /**
-   * Legt die "Pause abziehen"-Zeitspanne mittig in [startTime, endTime] -
-   * bei einer vorgegebenen Dauer (statt genauer Uhrzeiten) ist die Tagesmitte
-   * der plausibelste Standardort für eine Mittagspause. Liefert `undefined`,
-   * wenn die Pause nicht in den Zeitraum passt (länger oder genauso lang).
-   */
-  function centeredBreakWindow(startTime: string, endTime: string, breakMinutes: number): { start: string; end: string } | undefined {
-    const totalMinutes = computeDurationMinutes(startTime, endTime);
-    if (totalMinutes === undefined || breakMinutes <= 0 || breakMinutes >= totalMinutes) return undefined;
-    const offset = Math.floor((totalMinutes - breakMinutes) / 2);
-    const breakStart = addMinutesToTime(startTime, offset);
-    const breakEnd = addMinutesToTime(breakStart, breakMinutes);
-    return { start: breakStart, end: breakEnd };
   }
 
   /**

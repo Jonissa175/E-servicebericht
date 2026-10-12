@@ -8,7 +8,14 @@
     type DayTimelineEntry
   } from '../lib/db/stats';
   import { deleteTimeEntry, restoreBreak } from '../lib/db/timeEntries';
-  import { addManualBreak, addManualIdleTime, assignIdleTime, updateManualIdleTime } from '../lib/clockActions';
+  import {
+    addManualBreak,
+    addManualIdleTime,
+    addManualProjectTime,
+    assignIdleTime,
+    startProjectByNumber,
+    updateManualIdleTime
+  } from '../lib/clockActions';
   import { listAbsencesInRange, removeAbsence, setAbsence } from '../lib/db/absences';
   import { listReports } from '../lib/db/reports';
   import type { Absence, AbsenceType, ID, ServiceReport } from '../lib/db/types';
@@ -19,7 +26,7 @@
   import { SvelteSet } from 'svelte/reactivity';
   import { computeDayStatus, type DayStatus } from '../lib/utils/calendarDay';
   import { getGermanHolidays } from '../lib/utils/holidays';
-  import { getBundesland } from '../lib/settings';
+  import { getBundesland, getTechnicianName } from '../lib/settings';
   import Icon, { type IconName } from '../lib/components/Icon.svelte';
 
   type View = 'tag' | 'monat' | 'jahr' | 'kalender';
@@ -123,6 +130,22 @@
   let assignIdleWindowStart = $state('');
   let assignIdleWindowEnd = $state('');
   let assigningIdle = $state(false);
+  // Formular zum direkten Nachtragen einer PROJEKT-Zeit aus der Auswertung
+  // heraus (siehe openAddProjectTimeForm() unten) - z.B. wenn für mehrere
+  // Tage am Stück vergessen wurde, Zeiten einzutragen: Bericht per Suche
+  // wählen oder per Projektnummer neu anlegen, Zeit direkt hier eintragen,
+  // ohne den Bericht öffnen zu müssen (Alternative: "→ Projekt öffnen",
+  // falls die volle Bericht-Ansicht doch gebraucht wird).
+  let addProjectTimeFormOpen = $state(false);
+  let addProjectTimeQuery = $state('');
+  let addProjectTimeOpenReports = $state<ServiceReport[]>([]);
+  let addProjectTimeLoadingReports = $state(false);
+  let addProjectTimeSelectedReport = $state<ServiceReport | undefined>(undefined);
+  let addProjectTimeStart = $state('');
+  let addProjectTimeEnd = $state('');
+  let addProjectTimePauseEnabled = $state(false);
+  let addProjectTimePauseHours = $state(0.5);
+  let addingProjectTime = $state(false);
   let monthTarget = $state<MonthTarget>({
     targetMinutes: 0,
     workingDays: 0,
@@ -225,6 +248,7 @@
 
   function openAddIdleForm(): void {
     closeAssignIdlePanel();
+    closeAddProjectTimeForm();
     editingIdleEntry = undefined;
     addIdleStart = '';
     addIdleEnd = '';
@@ -234,6 +258,7 @@
   /** Öffnet dasselbe Formular im Bearbeiten-Modus, vorausgefüllt mit den bisherigen Zeiten des angetippten Eintrags. */
   function startEditIdle(entry: DayTimelineEntry): void {
     closeAssignIdlePanel();
+    closeAddProjectTimeForm();
     editingIdleEntry = entry;
     addIdleStart = entry.startTime ?? '';
     addIdleEnd = entry.endTime ?? '';
@@ -297,6 +322,7 @@
    */
   async function openAssignIdlePanel(entry: DayTimelineEntry): Promise<void> {
     closeAddIdleForm();
+    closeAddProjectTimeForm();
     assignIdleEntry = entry;
     assignIdleQuery = '';
     assignIdleSelectedReport = undefined;
@@ -331,6 +357,104 @@
       await load();
     } finally {
       assigningIdle = false;
+    }
+  }
+
+  const filteredAddProjectTimeReports = $derived.by(() => {
+    const query = addProjectTimeQuery.trim().toLowerCase();
+    if (!query) return addProjectTimeOpenReports;
+    return addProjectTimeOpenReports.filter(
+      (report) =>
+        report.projectNumber.toLowerCase().includes(query) || (report.customer ?? '').toLowerCase().includes(query)
+    );
+  });
+
+  /**
+   * Öffnet das "Projekt-Zeit hinzufügen"-Panel für den gewählten Tag -
+   * schließt dafür das Leerlaufzeit-Formular bzw. "Projekt zuordnen"-Panel,
+   * falls offen (ergeben nebeneinander keinen Sinn). Lädt frisch die noch
+   * offenen Berichte zur Auswahl (dieselbe Quelle/Filterung wie "Direkt
+   * einchecken" in DayClock.svelte).
+   */
+  async function openAddProjectTimeForm(): Promise<void> {
+    closeAddIdleForm();
+    closeAssignIdlePanel();
+    addProjectTimeFormOpen = true;
+    addProjectTimeQuery = '';
+    addProjectTimeSelectedReport = undefined;
+    addProjectTimeStart = '08:00';
+    addProjectTimeEnd = '17:00';
+    addProjectTimePauseEnabled = false;
+    addProjectTimePauseHours = 0.5;
+    addProjectTimeLoadingReports = true;
+    addProjectTimeOpenReports = await listReports('open');
+    addProjectTimeLoadingReports = false;
+  }
+
+  function closeAddProjectTimeForm(): void {
+    addProjectTimeFormOpen = false;
+    addProjectTimeSelectedReport = undefined;
+  }
+
+  /**
+   * Legt wie beim "Direkt einchecken"-Schnellzugriff (DayClock.svelte) per
+   * Projektnummer-Eingabe einen neuen Bericht an oder verhindert ein
+   * Duplikat, falls zu dieser Nummer bereits ein offener Bericht existiert
+   * (dann wird der stattdessen ausgewählt) - derselbe
+   * startProjectByNumber()-Ablauf, hier aber OHNE einzuchecken: es soll nur
+   * eine Zeit nachgetragen werden, ohne den Tagesstempel oder den gerade
+   * eingecheckten Bericht zu beeinflussen.
+   */
+  async function createAddProjectTimeViaPrompt(): Promise<void> {
+    if (addingProjectTime) return;
+    const projectNumber = prompt('Projektnummer für den neuen Bericht:');
+    if (!projectNumber?.trim()) return;
+    addingProjectTime = true;
+    try {
+      const result = await startProjectByNumber(projectNumber, getTechnicianName() || undefined);
+      addProjectTimeSelectedReport = result.report;
+      if (result.reused) {
+        alert(
+          `Für Projekt "${result.report.projectNumber}" ist bereits ein offener Bericht vorhanden - die Zeit wird dort nachgetragen.`
+        );
+      } else if (result.visitTotal > 1) {
+        alert(
+          `Neuer Bericht für Projekt "${result.report.projectNumber}" angelegt (${result.visitNumber}. Bericht zu diesem Projekt).`
+        );
+      }
+    } finally {
+      addingProjectTime = false;
+    }
+  }
+
+  /** Alternative zum direkten Nachtragen hier: stattdessen in den vollen Bericht springen (z.B. für Notizen/Material/Fotos). */
+  function openSelectedProjectReport(): void {
+    if (!addProjectTimeSelectedReport) return;
+    navigate(`/reports/${addProjectTimeSelectedReport.id}`);
+  }
+
+  /**
+   * Trägt die Projekt-Zeit für den gewählten Bericht und Tag nach (siehe
+   * addManualProjectTime() in clockActions.ts) - inkl. optionaler, mittig
+   * platzierter Pause, genau wie im Zeiten-Tab eines Berichts.
+   */
+  async function submitAddProjectTime(): Promise<void> {
+    if (!addProjectTimeSelectedReport || !addProjectTimeStart || !addProjectTimeEnd || addingProjectTime) return;
+    addingProjectTime = true;
+    try {
+      const pauseMinutes = addProjectTimePauseEnabled ? Math.round(addProjectTimePauseHours * 60) : undefined;
+      await addManualProjectTime(
+        addProjectTimeSelectedReport.id,
+        selectedDate,
+        addProjectTimeStart,
+        addProjectTimeEnd,
+        pauseMinutes
+      );
+      closeAddProjectTimeForm();
+      await reloadDayTimeline();
+      await load();
+    } finally {
+      addingProjectTime = false;
     }
   }
 
@@ -754,6 +878,78 @@
         {/if}
 
         <div class="timeline-add-actions">
+          {#if addProjectTimeFormOpen}
+            <div class="add-entry-form project-time-panel">
+              {#if !addProjectTimeSelectedReport}
+                <input
+                  type="search"
+                  bind:value={addProjectTimeQuery}
+                  placeholder="Offenen Bericht suchen (Projektnummer, Kunde)…"
+                  aria-label="Offenen Bericht suchen"
+                />
+                {#if addProjectTimeLoadingReports}
+                  <p class="hint small">Lade offene Berichte…</p>
+                {:else if filteredAddProjectTimeReports.length === 0}
+                  <p class="hint small">
+                    {addProjectTimeOpenReports.length === 0
+                      ? 'Keine offenen Berichte vorhanden.'
+                      : 'Keine passenden Berichte gefunden.'}
+                  </p>
+                {:else}
+                  <ul class="picker-list">
+                    {#each filteredAddProjectTimeReports as report (report.id)}
+                      <li>
+                        <button type="button" onclick={() => (addProjectTimeSelectedReport = report)}>
+                          <strong>{report.projectNumber}</strong>
+                          {#if report.customer}<span> · {report.customer}</span>{/if}
+                        </button>
+                      </li>
+                    {/each}
+                  </ul>
+                {/if}
+                <div class="add-entry-actions">
+                  <button type="button" class="new-report" onclick={createAddProjectTimeViaPrompt} disabled={addingProjectTime}>
+                    + Neuen Bericht anlegen
+                  </button>
+                  <button type="button" class="cancel" onclick={closeAddProjectTimeForm}>Abbrechen</button>
+                </div>
+              {:else}
+                <div class="project-time-header">
+                  <p class="assign-target">
+                    Zeit für <strong>{addProjectTimeSelectedReport.projectNumber}</strong>{#if addProjectTimeSelectedReport.customer}
+                      · {addProjectTimeSelectedReport.customer}{/if}
+                  </p>
+                  <button type="button" class="open-report-link" onclick={openSelectedProjectReport}>→ Projekt öffnen</button>
+                </div>
+                <div class="entry-time-row">
+                  <input type="time" bind:value={addProjectTimeStart} aria-label="Projekt-Zeit von" />
+                  <span>–</span>
+                  <input type="time" bind:value={addProjectTimeEnd} aria-label="Projekt-Zeit bis" />
+                </div>
+                <label class="pause-toggle">
+                  <input type="checkbox" bind:checked={addProjectTimePauseEnabled} />
+                  Pause abziehen
+                </label>
+                {#if addProjectTimePauseEnabled}
+                  <div class="pause-hours-row">
+                    <span>Pause (Std.)</span>
+                    <input type="number" inputmode="decimal" step="0.25" min="0.25" bind:value={addProjectTimePauseHours} />
+                  </div>
+                {/if}
+                <div class="add-entry-actions">
+                  <button type="button" class="cancel" onclick={() => (addProjectTimeSelectedReport = undefined)}>
+                    Anderes Projekt
+                  </button>
+                  <button type="button" class="primary" onclick={submitAddProjectTime} disabled={addingProjectTime}>
+                    Speichern
+                  </button>
+                </div>
+              {/if}
+            </div>
+          {:else}
+            <button type="button" class="add-entry-toggle" onclick={openAddProjectTimeForm}>+ Projekt-Zeit hinzufügen</button>
+          {/if}
+
           {#if addIdleFormOpen}
             <div class="add-entry-form">
               <div class="entry-time-row">
@@ -1641,6 +1837,58 @@
     padding: var(--space-2) var(--space-4);
     min-height: auto;
     font-weight: 600;
+  }
+
+  .add-entry-actions .new-report {
+    background: transparent;
+    border: 1px dashed var(--color-primary);
+    color: var(--color-primary);
+    border-radius: var(--radius-sm);
+    padding: var(--space-2) var(--space-4);
+    min-height: auto;
+    font-weight: 600;
+  }
+
+  .project-time-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-2);
+  }
+
+  .open-report-link {
+    background: transparent;
+    border: none;
+    color: var(--color-primary);
+    font-size: 0.8rem;
+    font-weight: 600;
+    padding: 0;
+    min-height: auto;
+    white-space: nowrap;
+  }
+
+  .pause-toggle {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    font-size: 0.9rem;
+  }
+
+  .pause-toggle input[type='checkbox'] {
+    width: auto;
+    min-height: auto;
+  }
+
+  .pause-hours-row {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    font-size: 0.85rem;
+    color: var(--color-text-muted);
+  }
+
+  .pause-hours-row input {
+    flex: 1;
   }
 
   .breakdown-label {

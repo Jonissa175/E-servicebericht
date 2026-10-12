@@ -9,7 +9,7 @@ import {
 } from './db/timeEntries';
 import { checkInWorkDay, checkOutWorkDay, getActiveWorkDay } from './db/workDays';
 import type { ID, ServiceReport, TimeEntry, WorkDay } from './db/types';
-import { addMinutesToTime, nowHHmm, subtractTimeRange, todayISODate } from './utils/date';
+import { addMinutesToTime, centeredBreakWindow, nowHHmm, subtractTimeRange, todayISODate } from './utils/date';
 import { MAX_DAILY_CLOCKED_MINUTES } from './utils/arbzg';
 
 export interface DaySummary {
@@ -102,6 +102,41 @@ export async function addManualIdleTime(date: string, startTime: string, endTime
   const overlaps = await findOverlappingTimeEntries(date, startTime, endTime);
   await trimOverlappingTimeEntries(overlaps, startTime, endTime);
   await addTimeEntry(undefined, { date, startTime, endTime });
+}
+
+/**
+ * Trägt Projektzeit für einen beliebigen (auch zurückliegenden) Tag direkt
+ * einem Bericht nach, ohne dass man dafür den Bericht öffnen muss - z.B. aus
+ * der Auswertung heraus (Statistik.svelte, Tag-Ansicht), wenn für mehrere
+ * Tage am Stück vergessen wurde, Zeiten einzutragen: Datum einfach per
+ * Vor-/Zurück-Navigation wechseln, Projekt wählen/anlegen, Zeit eintragen,
+ * wiederholen. Schneidet wie addManualIdleTime()/addManualBreak() zunächst
+ * eventuell überschneidende Projekt-/Leerlaufzeit-Einträge automatisch heraus
+ * (ohne Rückfrage - konsistent mit den anderen "+ ... hinzufügen"-Buttons in
+ * der Auswertung Tag-Ansicht, anders als die Rückfrage im Zeiten-Tab eines
+ * Berichts selbst), damit ein versehentlich überlappender Zeitraum nicht
+ * doppelt gezählt wird.
+ *
+ * `pauseMinutes` legt optional eine Pause automatisch mittig in den Zeitraum
+ * (siehe centeredBreakWindow(), utils/date.ts) - dieselbe vereinfachte
+ * "Pause abziehen"-Eingabe (nur Dauer statt exakter Uhrzeiten) wie im
+ * Zeiten-Tab eines Berichts.
+ */
+export async function addManualProjectTime(
+  reportId: ID,
+  date: string,
+  startTime: string,
+  endTime: string,
+  pauseMinutes?: number
+): Promise<void> {
+  if (!startTime || !endTime) return;
+  const overlaps = await findOverlappingTimeEntries(date, startTime, endTime);
+  await trimOverlappingTimeEntries(overlaps, startTime, endTime);
+  await addTimeEntry(reportId, { date, startTime, endTime });
+  if (pauseMinutes && pauseMinutes > 0) {
+    const window = centeredBreakWindow(startTime, endTime, pauseMinutes);
+    if (window) await addManualBreak(date, window.start, window.end);
+  }
 }
 
 /**

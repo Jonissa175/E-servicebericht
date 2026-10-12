@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   addMinutesToTime,
+  centeredBreakWindow,
   computeDurationMinutes,
   formatDateDE,
   formatDurationMinutes,
@@ -142,5 +143,31 @@ describe('subtractTimeRange', () => {
 
   it('liefert eine leere Liste bei ungültigem Format', () => {
     expect(subtractTimeRange({ start: 'x', end: '16:00' }, { start: '10:00', end: '14:00' })).toEqual([]);
+  });
+});
+
+describe('centeredBreakWindow', () => {
+  it('legt die Pause mittig in den Zeitraum', () => {
+    // 9 Std. Gesamtzeitraum, 30 Min. Pause -> 4:15 Std. Versatz von beiden Enden.
+    expect(centeredBreakWindow('08:00', '17:00', 30)).toEqual({ start: '12:15', end: '12:45' });
+  });
+
+  it('rundet einen ungeraden Versatz ab (floor)', () => {
+    // 9:01 Std. Gesamtzeitraum, 30 Min. Pause -> Versatz 4:15,5 -> abgerundet auf 4:15.
+    expect(centeredBreakWindow('08:00', '17:01', 30)).toEqual({ start: '12:15', end: '12:45' });
+  });
+
+  it('liefert undefined, wenn die Pause genauso lang oder länger als der Zeitraum ist', () => {
+    expect(centeredBreakWindow('08:00', '08:30', 30)).toBeUndefined();
+    expect(centeredBreakWindow('08:00', '08:20', 30)).toBeUndefined();
+  });
+
+  it('liefert undefined bei einer Dauer von 0 oder weniger', () => {
+    expect(centeredBreakWindow('08:00', '17:00', 0)).toBeUndefined();
+    expect(centeredBreakWindow('08:00', '17:00', -10)).toBeUndefined();
+  });
+
+  it('liefert undefined bei ungültigem Zeitformat', () => {
+    expect(centeredBreakWindow('x', '17:00', 30)).toBeUndefined();
   });
 });

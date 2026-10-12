@@ -3,6 +3,7 @@ import { resetTestDB } from './testUtils';
 import {
   addManualBreak,
   addManualIdleTime,
+  addManualProjectTime,
   assignIdleTime,
   autoCheckOutIfExceeded,
   checkInDay,
@@ -632,6 +633,59 @@ describe('addManualIdleTime (manuelles Nachtragen von Leerlaufzeit, z.B. bei ver
     await addManualIdleTime('2026-08-10', '12:00', '');
 
     expect(await getDayIdleEntries('2026-08-10')).toEqual([]);
+  });
+});
+
+describe('addManualProjectTime (Projektzeit direkt aus der Auswertung nachtragen, ohne den Bericht zu öffnen)', () => {
+  it('legt für einen beliebigen Tag eine Projekt-Zeit an, ganz ohne aktiven Tagesstempel', async () => {
+    const report = await createReport({ projectNumber: 'A' });
+
+    await addManualProjectTime(report.id, '2026-08-10', '08:00', '17:00');
+
+    const entries = await listTimeEntries(report.id);
+    expect(entries).toHaveLength(1);
+    expect(entries[0]).toMatchObject({ date: '2026-08-10', startTime: '08:00', endTime: '17:00' });
+    const updated = await getReport(report.id);
+    expect(updated?.totalDurationMinutes).toBe(540);
+  });
+
+  it('schneidet eine versehentlich überschneidende Leerlaufzeit vorher heraus, statt sie doppelt zu zählen', async () => {
+    const report = await createReport({ projectNumber: 'A' });
+    await addManualIdleTime('2026-08-10', '08:00', '12:00');
+
+    await addManualProjectTime(report.id, '2026-08-10', '10:00', '17:00');
+
+    const idle = await getDayIdleEntries('2026-08-10');
+    expect(idle).toHaveLength(1);
+    expect(idle[0]).toMatchObject({ startTime: '08:00', endTime: '10:00' });
+    const reportEntries = await listTimeEntries(report.id);
+    expect(reportEntries).toHaveLength(1);
+    expect(reportEntries[0]).toMatchObject({ startTime: '10:00', endTime: '17:00' });
+  });
+
+  it('schneidet bei angegebener Pausendauer eine mittig liegende Pause heraus', async () => {
+    const report = await createReport({ projectNumber: 'A' });
+
+    await addManualProjectTime(report.id, '2026-08-10', '08:00', '17:00', 30);
+
+    const reportEntries = await listTimeEntries(report.id);
+    // 9 Std. Gesamtzeitraum, 30 Min. Pause mittig -> gesplittet in zwei Teile.
+    expect(reportEntries.map((e) => [e.startTime, e.endTime]).sort()).toEqual([
+      ['08:00', '12:15'],
+      ['12:45', '17:00']
+    ]);
+    const breaks = await getDayBreaks('2026-08-10');
+    expect(breaks).toHaveLength(1);
+    expect(breaks[0]).toMatchObject({ startTime: '12:15', endTime: '12:45', minutes: 30 });
+  });
+
+  it('hat keinen Effekt, wenn Start- oder Endzeit fehlt', async () => {
+    const report = await createReport({ projectNumber: 'A' });
+
+    await addManualProjectTime(report.id, '2026-08-10', '', '12:30');
+    await addManualProjectTime(report.id, '2026-08-10', '12:00', '');
+
+    expect(await listTimeEntries(report.id)).toEqual([]);
   });
 });
 
