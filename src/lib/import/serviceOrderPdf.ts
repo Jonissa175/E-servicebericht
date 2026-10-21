@@ -22,9 +22,19 @@
  * zu nicht eingebetteten Standard-Schriftarten - rein kosmetisch und ohne
  * Effekt auf die Text-Extraktion (es wird nirgends gerendert, nur der reine
  * Text ausgelesen), deshalb bewusst nicht extra nachgeladen.
+ *
+ * Bewusst der "legacy"-Build (`pdfjs-dist/legacy/build/pdf.mjs`, nicht der
+ * Standard-Build `pdfjs-dist`): Auf einem iPhone (Servicetechniker vor Ort)
+ * ist nicht sichergestellt, dass immer die allerneueste Safari-Version
+ * läuft - der Standard-Build setzt neuere JS-Engine-Features voraus und
+ * führte dort beobachtet zu einem kryptischen Laufzeitfehler
+ * ("undefined is not a function"), während der eigens für breitere
+ * Browser-Kompatibilität gebaute Legacy-Build dieselbe API bietet. Die
+ * selbst gehostete Worker-Datei (public/pdfjs/) muss dazu passend die
+ * Legacy-Variante sein.
  */
 export async function extractPdfText(file: File): Promise<string> {
-  const pdfjsLib = await import('pdfjs-dist');
+  const pdfjsLib = await import('pdfjs-dist/legacy/build/pdf.mjs');
   const base = import.meta.env.BASE_URL;
   pdfjsLib.GlobalWorkerOptions.workerSrc = `${base}pdfjs/pdf.worker.min.mjs`;
 

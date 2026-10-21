@@ -4,6 +4,16 @@ import type { ServiceReport } from '../db/types';
 import { extractPdfText } from './serviceOrderPdf';
 import { parseServiceOrderText, type ParsedServiceOrder, type ParsedServiceOrderMaterial } from '../utils/serviceOrderImport';
 
+/**
+ * Eigene Error-Klasse für erwartete, nutzerverständliche Fehler (z.B. keine
+ * Projektnummer im PDF gefunden) - damit die UI (ReportList.svelte) diese
+ * gezielt vom Nutzer zeigen kann, während ein unerwarteter technischer
+ * Fehler (z.B. aus der PDF-Extraktion) dort stattdessen einen generischen,
+ * verständlichen Hinweis bekommt statt einer rohen, für den Nutzer
+ * nichtssagenden Browser-/Bibliotheks-Fehlermeldung.
+ */
+export class ServiceOrderImportError extends Error {}
+
 export interface ServiceOrderImportResult {
   report: ServiceReport;
   parsed: ParsedServiceOrder;
@@ -49,15 +59,19 @@ function buildImportNotes(parsed: ParsedServiceOrder): string | undefined {
  * checkForDuplicateProjectNumber()) - oder ob trotzdem ein weiterer Bericht
  * zu dieser Projektnummer entstehen soll (z.B. ein Folgeauftrag).
  *
- * Wirft einen Error mit nutzerverständlicher Meldung, wenn im PDF keine
- * Projektnummer gefunden wurde (z.B. falsches/fremdes PDF ausgewählt) -
- * ohne Projektnummer lässt sich kein Bericht sinnvoll anlegen.
+ * Wirft eine ServiceOrderImportError mit nutzerverständlicher Meldung, wenn
+ * im PDF keine Projektnummer gefunden wurde (z.B. falsches/fremdes PDF
+ * ausgewählt) - ohne Projektnummer lässt sich kein Bericht sinnvoll anlegen.
+ * Jeder andere (unerwartete/technische) Fehler, z.B. aus der PDF-Extraktion
+ * selbst, wird unverändert durchgereicht - die UI zeigt dafür bewusst einen
+ * generischen Hinweis statt der rohen Fehlermeldung, siehe
+ * ReportList.svelte handleServiceOrderFile().
  */
 export async function importServiceOrderFromFile(file: File, technicianName?: string): Promise<ServiceOrderImportResult> {
   const rawText = await extractPdfText(file);
   const parsed = parseServiceOrderText(rawText);
   if (!parsed.projectNumber) {
-    throw new Error(
+    throw new ServiceOrderImportError(
       'Im PDF wurde keine Projektnummer gefunden - ist das wirklich ein Serviceauftrag im bekannten ELSA-Format?'
     );
   }

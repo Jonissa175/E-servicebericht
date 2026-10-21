@@ -1,7 +1,7 @@
 <script lang="ts">
   import { getGloballyActiveTimeEntry, listReports, type ReportFilter, type ServiceReport } from '../lib/db';
   import { buildBackupFile, parseBackupFile, restoreBackup, suggestedBackupFileName } from '../lib/backup/backupFile';
-  import { importServiceOrderFromFile } from '../lib/import/importServiceOrder';
+  import { importServiceOrderFromFile, ServiceOrderImportError } from '../lib/import/importServiceOrder';
   import { getTechnicianName } from '../lib/settings';
   import DayClock from '../lib/components/DayClock.svelte';
   import ReportCard from '../lib/components/ReportCard.svelte';
@@ -210,8 +210,15 @@
       }
       navigate(`/reports/${result.report.id}`);
     } catch (err) {
+      // Nur eine gezielte ServiceOrderImportError (s. importServiceOrder.ts,
+      // z.B. "keine Projektnummer gefunden") zeigt ihre eigene Meldung -
+      // jeder andere (technische/unerwartete) Fehler bekommt stattdessen
+      // diesen generischen, für den Nutzer verständlichen Hinweis, statt
+      // einer rohen Browser-/Bibliotheks-Fehlermeldung.
       importOrderError =
-        err instanceof Error ? err.message : 'Serviceauftrag konnte nicht gelesen werden. Bitte erneut versuchen.';
+        err instanceof ServiceOrderImportError
+          ? err.message
+          : 'Serviceauftrag konnte nicht gelesen werden. Bitte erneut versuchen oder das PDF als Datei (nicht als Foto/Scan) prüfen.';
       console.error('Serviceauftrag-Import fehlgeschlagen', err);
     } finally {
       importOrderBusy = false;
