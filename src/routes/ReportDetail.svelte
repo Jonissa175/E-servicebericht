@@ -46,6 +46,10 @@
   let technicianName = $state(isNewRoute ? getTechnicianName() : '');
   let notes = $state('');
   let status = $state<ReportStatus>('open');
+  // Als Text-State wie die übrigen Felder (leer = nicht gesetzt), nicht als
+  // Zahl - sonst müsste jede Zwischeneingabe beim Tippen (z.B. "1" vor dem
+  // ",5" von "1,5") schon eine gültige Zahl sein.
+  let plannedLaborHours = $state('');
 
   let timeEntryCount = $state(0);
   let totalDurationMinutes = $state(0);
@@ -84,6 +88,30 @@
   // Unterschrift-Tab).
   const locked = $derived(!!finalizedAt);
 
+  /**
+   * Mannstunden-Soll/Ist-Vergleich für die Übersicht: `plannedLaborHours`
+   * (editierbar, bei einem Serviceauftrag-Import automatisch aus den
+   * "Std"-Arbeitsaufwand-Positionen vorbefüllt, s. db/types.ts) gegen die
+   * bereits erfasste Gesamtzeit (totalDurationMinutes, alle Kategorien/
+   * Projektzeit zusammen - der Nutzer wollte ausdrücklich "egal welche
+   * Kategorie"). undefined, solange kein Soll gesetzt ist - dann gibt es
+   * nichts zum Vergleichen und die Anzeige bleibt ausgeblendet (gleiches
+   * Prinzip wie plannedQuantity bei Material: nur anzeigen, wenn ein Soll
+   * überhaupt bekannt ist).
+   *
+   * Schwellwerte 80%/100% sind ein bewusst einfacher, nachvollziehbarer
+   * Standard (grün bis knapp vor Erreichen des Solls, gelb kurz davor, rot
+   * bei Überschreitung) - lassen sich bei Bedarf leicht anpassen.
+   */
+  const laborBudget = $derived.by(() => {
+    const planned = parsePlannedLaborHours();
+    if (planned === undefined) return undefined;
+    const usedHours = totalDurationMinutes / 60;
+    const ratio = usedHours / planned;
+    const level: 'ok' | 'warn' | 'over' = ratio > 1 ? 'over' : ratio >= 0.8 ? 'warn' : 'ok';
+    return { usedHours, planned, ratio, level };
+  });
+
   // Kopfdaten sind bei einem neuen Bericht ausgeklappt (müssen ja erst
   // ausgefüllt werden), bei einem bereits vorhandenen dagegen eingeklappt -
   // spart auf kleinen Bildschirmen Platz für die eigentliche Arbeit
@@ -107,6 +135,19 @@
     savedPulseTimeout = setTimeout(() => (savedPulseVisible = false), 1500);
   }
 
+  /** z.B. 6.5 -> "6,5 Std." - für die Mannstunden-Anzeige, deutsches Dezimalkomma statt Punkt. */
+  function formatHoursDE(hours: number): string {
+    return `${hours.toLocaleString('de-DE', { maximumFractionDigits: 1 })} Std.`;
+  }
+
+  /** `plannedLaborHours` als Zahl, oder undefined bei leerem/ungültigem Feld - Komma wie bei Menge-Feldern als Dezimaltrennzeichen zugelassen. */
+  function parsePlannedLaborHours(): number | undefined {
+    const trimmed = plannedLaborHours.trim();
+    if (!trimmed) return undefined;
+    const num = Number(trimmed.replace(',', '.'));
+    return Number.isFinite(num) && num > 0 ? num : undefined;
+  }
+
   async function persistNow(): Promise<void> {
     if (!reportId) {
       if (!projectNumber.trim()) return;
@@ -116,7 +157,8 @@
         customer: customer || undefined,
         contactPerson: contactPerson || undefined,
         technicianName: technicianName || undefined,
-        notes: notes || undefined
+        notes: notes || undefined,
+        plannedLaborHours: parsePlannedLaborHours()
       });
       reportId = created.id;
       // Absichtlich noch KEIN navigate() hier: das würde über
@@ -138,7 +180,8 @@
       contactPerson: contactPerson || undefined,
       technicianName: technicianName || undefined,
       notes: notes || undefined,
-      status
+      status,
+      plannedLaborHours: parsePlannedLaborHours()
     });
     if (updated) flashSaved();
   }
@@ -272,6 +315,7 @@
       technicianName = report.technicianName ?? '';
       notes = report.notes ?? '';
       status = report.status;
+      plannedLaborHours = report.plannedLaborHours !== undefined ? String(report.plannedLaborHours) : '';
       timeEntryCount = report.timeEntryCount;
       totalDurationMinutes = report.totalDurationMinutes;
       materialItemCount = report.materialItemCount;
@@ -659,6 +703,19 @@
           />
         </label>
 
+        <label>
+          Geplante Mannstunden (optional)
+          <input
+            type="text"
+            inputmode="decimal"
+            bind:value={plannedLaborHours}
+            oninput={onFieldChange}
+            onblur={flushNow}
+            placeholder="z.B. 16"
+            disabled={locked}
+          />
+        </label>
+
         <div class="status-row">
           <button
             type="button"
@@ -722,6 +779,21 @@
               <div class="stat"><strong>{materialItemCount}</strong><span>Material-Positionen</span></div>
               <div class="stat"><strong>{photoCount}</strong><span>Fotos</span></div>
             </div>
+            {#if laborBudget}
+              <div class="labor-budget" class:warn={laborBudget.level === 'warn'} class:over={laborBudget.level === 'over'}>
+                <div class="labor-budget-row">
+                  <span>Mannstunden</span>
+                  <span
+                    >{formatHoursDE(laborBudget.usedHours)} von {formatHoursDE(laborBudget.planned)} ({Math.round(
+                      laborBudget.ratio * 100
+                    )} %)</span
+                  >
+                </div>
+                <div class="labor-budget-bar">
+                  <div class="labor-budget-fill" style:width="{Math.min(laborBudget.ratio, 1) * 100}%"></div>
+                </div>
+              </div>
+            {/if}
             <label>
               Notizen
               <textarea
@@ -1130,6 +1202,65 @@
   .stat span {
     font-size: 0.75rem;
     color: var(--color-text-muted);
+  }
+
+  .labor-budget {
+    background: var(--color-surface);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-md);
+    padding: var(--space-3);
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+  }
+
+  .labor-budget-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: var(--space-2);
+    font-size: 0.85rem;
+  }
+
+  .labor-budget-row span:first-child {
+    font-weight: 600;
+  }
+
+  .labor-budget-row span:last-child {
+    color: var(--color-text-muted);
+    font-size: 0.8rem;
+  }
+
+  .labor-budget-bar {
+    height: 8px;
+    background: var(--color-surface-muted);
+    border-radius: 999px;
+    overflow: hidden;
+  }
+
+  .labor-budget-fill {
+    height: 100%;
+    border-radius: 999px;
+    background: var(--color-success);
+    transition: width 0.2s ease;
+  }
+
+  .labor-budget.warn .labor-budget-fill {
+    background: var(--color-open);
+  }
+
+  .labor-budget.over .labor-budget-fill {
+    background: var(--color-danger);
+  }
+
+  .labor-budget.warn .labor-budget-row span:last-child {
+    color: var(--color-open);
+    font-weight: 600;
+  }
+
+  .labor-budget.over .labor-budget-row span:last-child {
+    color: var(--color-danger);
+    font-weight: 600;
   }
 
   .overview label {

@@ -104,6 +104,11 @@ describe('parseServiceOrderText', () => {
     ]);
   });
 
+  it('summiert die geplanten Mannstunden aus den "Std"-Arbeitsaufwand-Positionen (Pauschalen/Stückzahlen zählen nicht mit)', () => {
+    const result = parseServiceOrderText(SAMPLE_RAW);
+    expect(result.plannedLaborHours).toBe(16);
+  });
+
   it('ignoriert wiederkehrende Brief-/Fußzeilen (Bankverbindung, Handelsregister) und Seitenzahlen', () => {
     const result = parseServiceOrderText(SAMPLE_RAW);
     const allText = [...result.materials.map((m) => m.description), ...result.laborLines].join(' ');
@@ -114,6 +119,7 @@ describe('parseServiceOrderText', () => {
     const result = parseServiceOrderText('nur irgendein Text ohne Struktur');
     expect(result.materials).toEqual([]);
     expect(result.laborLines).toEqual([]);
+    expect(result.plannedLaborHours).toBeUndefined();
     expect(result.projectNumber).toBeUndefined();
     expect(result.customer).toBeUndefined();
   });

@@ -8,6 +8,7 @@ export interface CreateReportInput {
   contactPerson?: string;
   technicianName?: string;
   notes?: string;
+  plannedLaborHours?: number;
 }
 
 export async function createReport(input: CreateReportInput): Promise<ServiceReport> {
@@ -22,6 +23,10 @@ export async function createReport(input: CreateReportInput): Promise<ServiceRep
     technicianName: input.technicianName?.trim() || undefined,
     status: 'open',
     notes: input.notes?.trim() || undefined,
+    plannedLaborHours:
+      input.plannedLaborHours !== undefined && Number.isFinite(input.plannedLaborHours) && input.plannedLaborHours > 0
+        ? input.plannedLaborHours
+        : undefined,
     timeEntryCount: 0,
     totalDurationMinutes: 0,
     materialItemCount: 0,
@@ -101,7 +106,14 @@ async function withReportTransaction(
 export type UpdateReportPatch = Partial<
   Pick<
     ServiceReport,
-    'projectNumber' | 'projectDescription' | 'customer' | 'contactPerson' | 'technicianName' | 'status' | 'notes'
+    | 'projectNumber'
+    | 'projectDescription'
+    | 'customer'
+    | 'contactPerson'
+    | 'technicianName'
+    | 'status'
+    | 'notes'
+    | 'plannedLaborHours'
   >
 >;
 
@@ -114,6 +126,10 @@ export async function updateReport(id: ID, patch: UpdateReportPatch): Promise<Se
     if (patch.technicianName !== undefined) report.technicianName = patch.technicianName.trim() || undefined;
     if (patch.status !== undefined) report.status = patch.status;
     if (patch.notes !== undefined) report.notes = patch.notes.trim() || undefined;
+    if (patch.plannedLaborHours !== undefined) {
+      report.plannedLaborHours =
+        Number.isFinite(patch.plannedLaborHours) && patch.plannedLaborHours > 0 ? patch.plannedLaborHours : undefined;
+    }
     report.updatedAt = new Date().toISOString();
   });
 }

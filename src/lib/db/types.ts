@@ -23,6 +23,17 @@ export interface ServiceReport {
   status: ReportStatus;
   notes?: string;
 
+  /**
+   * Geplante Mannstunden für diesen Einsatz (Summe über alle Rollen/
+   * Kategorien, z.B. Monteur + Azubi zusammen) - bei einem Serviceauftrag-
+   * Import automatisch aus den "Arbeitsaufwand"-Stunden-Positionen
+   * vorbefüllt (siehe importServiceOrder.ts), für jeden Bericht aber frei
+   * editier-/nachtragbar. Rein informativ zum Abgleich mit der tatsächlich
+   * erfassten Zeit (totalDurationMinutes) in der Übersicht - keine eigene
+   * Validierung/Begrenzung.
+   */
+  plannedLaborHours?: number;
+
   /** Kunden-Unterschrift (Abnahme) als PNG-Blob vom Unterschriften-Pad, inkl. Original-Pixelgröße für den Export. */
   signatureBlob?: Blob;
   signatureWidth?: number;

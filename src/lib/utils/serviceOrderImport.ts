@@ -41,6 +41,14 @@ export interface ParsedServiceOrder {
   materials: ParsedServiceOrderMaterial[];
   /** Arbeitsaufwand-/Pauschal-Positionen (z.B. "8 Std. Leitender Monteur") - kein Material, nur zur Information. */
   laborLines: string[];
+  /**
+   * Summe aller Arbeitsaufwand-Positionen mit Einheit "Std" (Pauschalen/
+   * Stückzahlen wie "An- und Abreisepauschale" zählen nicht als Zeit) -
+   * Basis für den Mannstunden-Soll/Ist-Vergleich in der Übersicht (siehe
+   * ServiceReport.plannedLaborHours). undefined, wenn keine
+   * Stunden-Position gefunden wurde.
+   */
+  plannedLaborHours?: number;
   /** Der unveränderte, aus dem PDF extrahierte Text - immer gesetzt, auch wenn nichts erkannt wurde. */
   raw: string;
 }
@@ -133,6 +141,7 @@ export function parseServiceOrderText(rawText: string): ParsedServiceOrder {
 
   const materials: ParsedServiceOrderMaterial[] = [];
   const laborLines: string[] = [];
+  let plannedLaborHoursSum = 0;
 
   // Erst ab der Tabellen-Kopfzeile ("Pos. Menge Ein. Text") wird überhaupt
   // nach Positionen gesucht - alles davor (Kopf-/Kundendaten) ist bereits
@@ -166,6 +175,7 @@ export function parseServiceOrderText(rawText: string): ParsedServiceOrder {
         laborLines.push(`${quantityText} ${unit} ${text}`.trim());
         currentLaborIndex = laborLines.length - 1;
         currentMaterial = undefined;
+        if (unit === 'Std') plannedLaborHoursSum += quantity;
       } else {
         currentMaterial = { description: text, quantity, unit };
         materials.push(currentMaterial);
@@ -201,6 +211,7 @@ export function parseServiceOrderText(rawText: string): ParsedServiceOrder {
     projectDescription,
     materials,
     laborLines,
+    plannedLaborHours: plannedLaborHoursSum > 0 ? plannedLaborHoursSum : undefined,
     raw
   };
 }

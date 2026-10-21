@@ -46,6 +46,19 @@ describe('reports repository', () => {
     expect(report.notes).toBe('Erstbegehung erfolgt');
   });
 
+  it('speichert geplante Mannstunden beim Anlegen und lässt sie nachträglich ändern (plannedLaborHours)', async () => {
+    const report = await createReport({ projectNumber: '2026-003', plannedLaborHours: 16 });
+    expect(report.plannedLaborHours).toBe(16);
+
+    const updated = await updateReport(report.id, { plannedLaborHours: 20 });
+    expect(updated?.plannedLaborHours).toBe(20);
+  });
+
+  it('ignoriert eine ungültige geplante Mannstunden-Angabe (0, negativ) beim Anlegen', async () => {
+    const report = await createReport({ projectNumber: '2026-004', plannedLaborHours: 0 });
+    expect(report.plannedLaborHours).toBeUndefined();
+  });
+
   it('listet Berichte nach updatedAt absteigend', async () => {
     const first = await createReport({ projectNumber: 'A' });
     await new Promise((resolve) => setTimeout(resolve, 2));

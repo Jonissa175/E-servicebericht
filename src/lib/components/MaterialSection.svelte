@@ -194,22 +194,32 @@
     {#if items.length > 0}
       <ul class="list">
         {#each items as item (item.id)}
-          <li class="row">
-            {#if locked}
-              <div class="row-main">
-                <span class="desc">{item.description}</span>
-                <span class="meta">{formatMeta(item)}</span>
-              </div>
-            {:else}
-              <button type="button" class="row-main" onclick={() => startEdit(item)}>
-                <span class="desc">{item.description}</span>
-                <span class="meta">{formatMeta(item)}</span>
-              </button>
-              <button type="button" class="delete" aria-label="Position löschen" onclick={() => remove(item)}>
-                <Icon name="trash" />
-              </button>
-            {/if}
-          </li>
+          {#if !locked && editingId === item.id}
+            <!-- Bearbeiten klappt direkt an der Stelle der angetippten Position auf,
+                 statt das Formular separat ganz unten (wo "+ Position hinzufügen" steht)
+                 anzuzeigen - dafür müsste man sonst bei einer langen Materialliste erst
+                 wieder nach unten scrollen, um zu sehen, was man gerade bearbeitet. -->
+            <li class="row row-form">
+              {@render materialForm()}
+            </li>
+          {:else}
+            <li class="row">
+              {#if locked}
+                <div class="row-main">
+                  <span class="desc">{item.description}</span>
+                  <span class="meta">{formatMeta(item)}</span>
+                </div>
+              {:else}
+                <button type="button" class="row-main" onclick={() => startEdit(item)}>
+                  <span class="desc">{item.description}</span>
+                  <span class="meta">{formatMeta(item)}</span>
+                </button>
+                <button type="button" class="delete" aria-label="Position löschen" onclick={() => remove(item)}>
+                  <Icon name="trash" />
+                </button>
+              {/if}
+            </li>
+          {/if}
         {/each}
       </ul>
     {/if}
@@ -217,70 +227,9 @@
 
   {#if locked}
     <p class="hint">Bericht ist gesperrt – Material kann nicht mehr geändert werden.</p>
-  {:else if showForm}
-    <form
-      class="form"
-      onsubmit={(event) => {
-        event.preventDefault();
-        void save();
-      }}
-    >
-      <label>
-        Bezeichnung
-        <input
-          type="text"
-          list="description-options"
-          bind:value={formDescription}
-          oninput={onDescriptionInput}
-          placeholder="z.B. Kabel NYM-J 3x1,5"
-          required
-        />
-        <datalist id="description-options">
-          {#each descriptionOptions as description (description)}
-            <option value={description}></option>
-          {/each}
-        </datalist>
-      </label>
-      <div class="two-col">
-        <label>
-          {formHasPlannedQuantity ? 'Menge (verbaut)' : 'Menge'}
-          <input type="text" inputmode="decimal" bind:value={formQuantity} />
-        </label>
-        <label>
-          Einheit
-          <input type="text" list="unit-options" bind:value={formUnit} oninput={onUnitInput} />
-          <datalist id="unit-options">
-            {#each commonUnits as unit (unit)}
-              <option value={unit}></option>
-            {/each}
-          </datalist>
-        </label>
-      </div>
-      {#if formHasPlannedQuantity}
-        <label>
-          Geplant laut Serviceauftrag
-          <input type="text" inputmode="decimal" bind:value={formPlannedQuantity} />
-        </label>
-      {/if}
-      <label>
-        Artikelnummer (optional)
-        <input type="text" bind:value={formArticleNumber} />
-      </label>
-      {#if lastScanRaw}
-        <p class="scan-hint">
-          {#if formDescription}
-            Aus Scan übernommen (bitte prüfen): <span>{lastScanRaw}</span>
-          {:else}
-            Aus Scan übernommen (Bezeichnung bitte vom Etikett abtippen): <span>{lastScanRaw}</span>
-          {/if}
-        </p>
-      {/if}
-      <div class="form-actions">
-        <button type="button" class="ghost" onclick={resetForm}>Abbrechen</button>
-        <button type="submit" class="primary">Speichern</button>
-      </div>
-    </form>
-  {:else}
+  {:else if showForm && !editingId}
+    {@render materialForm()}
+  {:else if !showForm}
     <div class="add-row">
       <button type="button" class="add" onclick={startAdd}>+ Position hinzufügen</button>
       <button type="button" class="scan" onclick={openScanner} aria-label="Material per Scan erfassen">
@@ -290,6 +239,71 @@
     </div>
   {/if}
 </div>
+
+{#snippet materialForm()}
+  <form
+    class="form"
+    onsubmit={(event) => {
+      event.preventDefault();
+      void save();
+    }}
+  >
+    <label>
+      Bezeichnung
+      <input
+        type="text"
+        list="description-options"
+        bind:value={formDescription}
+        oninput={onDescriptionInput}
+        placeholder="z.B. Kabel NYM-J 3x1,5"
+        required
+      />
+      <datalist id="description-options">
+        {#each descriptionOptions as description (description)}
+          <option value={description}></option>
+        {/each}
+      </datalist>
+    </label>
+    <div class="two-col">
+      <label>
+        {formHasPlannedQuantity ? 'Menge (verbaut)' : 'Menge'}
+        <input type="text" inputmode="decimal" bind:value={formQuantity} />
+      </label>
+      <label>
+        Einheit
+        <input type="text" list="unit-options" bind:value={formUnit} oninput={onUnitInput} />
+        <datalist id="unit-options">
+          {#each commonUnits as unit (unit)}
+            <option value={unit}></option>
+          {/each}
+        </datalist>
+      </label>
+    </div>
+    {#if formHasPlannedQuantity}
+      <label>
+        Geplant laut Serviceauftrag
+        <input type="text" inputmode="decimal" bind:value={formPlannedQuantity} />
+      </label>
+    {/if}
+    <label>
+      Artikelnummer (optional)
+      <input type="text" bind:value={formArticleNumber} />
+    </label>
+    {#if lastScanRaw}
+      <p class="scan-hint">
+        {#if formDescription}
+          Aus Scan übernommen (bitte prüfen): <span>{lastScanRaw}</span>
+        {:else}
+          Aus Scan übernommen (Bezeichnung bitte vom Etikett abtippen): <span>{lastScanRaw}</span>
+        {/if}
+      </p>
+    {/if}
+    <div class="form-actions">
+      <button type="button" class="ghost" onclick={resetForm}>Abbrechen</button>
+      <button type="submit" class="primary">Speichern</button>
+    </div>
+  </form>
+{/snippet}
 
 {#if scannerOpen}
   <BarcodeScanner onScan={handleScanResult} onOcrText={handleOcrResult} onClose={() => (scannerOpen = false)} />
@@ -324,6 +338,16 @@
     background: var(--color-surface);
     border: 1px solid var(--color-border);
     border-radius: var(--radius-md);
+  }
+
+  /* Enthält beim Bearbeiten einer Position direkt das Formular (.form bringt
+     bereits eigenen Rahmen/Hintergrund/Innenabstand mit) - die .row-Box
+     selbst bleibt deshalb hier unsichtbar, sonst gäbe es einen doppelten
+     Rahmen. */
+  .row.row-form {
+    display: block;
+    background: none;
+    border: none;
   }
 
   .row-main {

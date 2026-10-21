@@ -173,6 +173,7 @@ async function createNewReport(parsed: ParsedServiceOrder, technicianName?: stri
     customer: parsed.customer,
     contactPerson,
     technicianName,
-    notes: buildImportNotes(parsed)
+    notes: buildImportNotes(parsed),
+    plannedLaborHours: parsed.plannedLaborHours
   });
 }
