@@ -38,6 +38,21 @@
  * hier ein eigener, winziger Polyfill, synchron VOR dem dynamischen Import
  * von pdfjs-dist gesetzt (das Modul wertet ihn schon beim Laden aus, ein
  * Polyfill danach wäre zu spät).
+ *
+ * WICHTIG - das allein reicht NICHT: `Promise.withResolvers()` wird nicht
+ * nur im Haupt-Thread aufgerufen, sondern genauso im selbst gehosteten
+ * Worker-Skript (public/pdfjs/pdf.worker.min.mjs, als Module-Worker über
+ * `new Worker(url, {type: "module"})` geladen) - ein eigener globaler
+ * Scope mit eigenem `Promise`, den der hier gesetzte Polyfill NICHT
+ * erreicht. Derselbe Fehler trat deshalb identisch weiter auf, bis
+ * zusätzlich direkt in public/pdfjs/pdf.worker.min.mjs derselbe Polyfill
+ * als allererste Zeile der Datei eingefügt wurde (ein Module-Worker
+ * wertet seinen Dateiinhalt top-down aus, der Polyfill muss also vor dem
+ * restlichen - von pdfjs-dist selbst stammenden, nicht editierbaren -
+ * Code der Datei stehen). Bei einem künftigen pdfjs-dist-Upgrade (neue
+ * Worker-Datei aus node_modules/pdfjs-dist/legacy/build/ kopiert) muss
+ * dieser Patch manuell erneut angewendet werden - die erste Zeile der
+ * aktuellen public/pdfjs/pdf.worker.min.mjs zeigt den exakten Wortlaut.
  */
 interface PromiseWithResolversConstructor {
   withResolvers?: <T>() => {
