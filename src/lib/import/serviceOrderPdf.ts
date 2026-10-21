@@ -26,14 +26,43 @@
  * Bewusst der "legacy"-Build (`pdfjs-dist/legacy/build/pdf.mjs`, nicht der
  * Standard-Build `pdfjs-dist`): Auf einem iPhone (Servicetechniker vor Ort)
  * ist nicht sichergestellt, dass immer die allerneueste Safari-Version
- * läuft - der Standard-Build setzt neuere JS-Engine-Features voraus und
- * führte dort beobachtet zu einem kryptischen Laufzeitfehler
- * ("undefined is not a function"), während der eigens für breitere
- * Browser-Kompatibilität gebaute Legacy-Build dieselbe API bietet. Die
- * selbst gehostete Worker-Datei (public/pdfjs/) muss dazu passend die
- * Legacy-Variante sein.
+ * läuft, und der Standard-Build setzt neuere JS-Engine-Features voraus.
+ *
+ * Konkret ermittelte Ursache für einen auf einem echten iPhone
+ * beobachteten Laufzeitfehler ("undefined is not a function"): pdfjs-dist
+ * nutzt bereits beim Laden des Moduls `Promise.withResolvers()` - diese
+ * Methode gibt es erst ab Safari 17.4, und sie wird auch vom Legacy-Build
+ * NICHT mitpolyfilled (der deckt nur ältere Sprachsyntax ab, keine neuen
+ * Standardbibliotheks-Methoden). Ein auf einem älteren iPhone/iPad noch
+ * nicht aktualisiertes Safari hat diese Methode schlicht nicht - deshalb
+ * hier ein eigener, winziger Polyfill, synchron VOR dem dynamischen Import
+ * von pdfjs-dist gesetzt (das Modul wertet ihn schon beim Laden aus, ein
+ * Polyfill danach wäre zu spät).
  */
+interface PromiseWithResolversConstructor {
+  withResolvers?: <T>() => {
+    promise: Promise<T>;
+    resolve: (value: T | PromiseLike<T>) => void;
+    reject: (reason?: unknown) => void;
+  };
+}
+
+function ensurePromiseWithResolversPolyfill(): void {
+  const promiseCtor = Promise as unknown as PromiseWithResolversConstructor;
+  if (typeof promiseCtor.withResolvers === 'function') return;
+  promiseCtor.withResolvers = function <T>() {
+    let resolve!: (value: T | PromiseLike<T>) => void;
+    let reject!: (reason?: unknown) => void;
+    const promise = new Promise<T>((res, rej) => {
+      resolve = res;
+      reject = rej;
+    });
+    return { promise, resolve, reject };
+  };
+}
+
 export async function extractPdfText(file: File): Promise<string> {
+  ensurePromiseWithResolversPolyfill();
   const pdfjsLib = await import('pdfjs-dist/legacy/build/pdf.mjs');
   const base = import.meta.env.BASE_URL;
   pdfjsLib.GlobalWorkerOptions.workerSrc = `${base}pdfjs/pdf.worker.min.mjs`;
