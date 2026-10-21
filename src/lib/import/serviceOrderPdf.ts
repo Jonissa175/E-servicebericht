@@ -76,11 +76,26 @@ function ensurePromiseWithResolversPolyfill(): void {
   };
 }
 
+/**
+ * Cache-Busting für die Worker-Datei: `vite.config.ts` cacht public/pdfjs/
+ * über Workbox `runtimeCaching` mit "CacheFirst" + 1 Jahr Gültigkeit (statt
+ * im normalen Precache, s. dort) - ändert sich der Dateiinhalt (wie hier,
+ * Promise.withResolvers-Polyfill ergänzt), bleibt ein bereits
+ * zwischengespeichertes Gerät sonst DAUERHAFT auf der alten Datei hängen,
+ * da CacheFirst bei gleichbleibender URL nie erneut nachfragt - ein reines
+ * Redeploy der App (die übrige, gehashte Precache-Dateien bekommt
+ * automatisch frische URLs) reicht hier NICHT aus. Der Versions-Query-
+ * Parameter ändert die von Workbox als Cache-Key verwendete URL und zwingt
+ * dadurch zu einem frischen Download. Bei jeder inhaltlichen Änderung an
+ * public/pdfjs/pdf.worker.min.mjs muss dieser Wert erhöht werden.
+ */
+const PDF_WORKER_CACHE_VERSION = 2;
+
 export async function extractPdfText(file: File): Promise<string> {
   ensurePromiseWithResolversPolyfill();
   const pdfjsLib = await import('pdfjs-dist/legacy/build/pdf.mjs');
   const base = import.meta.env.BASE_URL;
-  pdfjsLib.GlobalWorkerOptions.workerSrc = `${base}pdfjs/pdf.worker.min.mjs`;
+  pdfjsLib.GlobalWorkerOptions.workerSrc = `${base}pdfjs/pdf.worker.min.mjs?v=${PDF_WORKER_CACHE_VERSION}`;
 
   const data = new Uint8Array(await file.arrayBuffer());
   const loadingTask = pdfjsLib.getDocument({ data, disableFontFace: true });
