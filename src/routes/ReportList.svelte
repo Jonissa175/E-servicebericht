@@ -33,6 +33,7 @@
   // trotzdem konkret zurückmelden lässt, statt nur "funktioniert nicht".
   let importOrderErrorDetail = $state('');
   let importOrderErrorDetailOpen = $state(false);
+  let importOrderErrorDetailCopied = $state(false);
   let menuOpen = $state(false);
   let bulkExportOpen = $state(false);
   /** Der Bericht, in den aktuell eingecheckt ist (falls einer) - wird oben angepinnt und farblich hervorgehoben. */
@@ -203,6 +204,42 @@
    * frei editierbar, da die Erkennung reine Heuristik auf ein festes
    * Vorlagen-Format ist (kein Standard wie bei GS1-Codes).
    */
+  /**
+   * Baut einen möglichst aussagekräftigen Diagnosetext aus einem
+   * unerwarteten Import-Fehler: Name+Meldung jeder Stufe der `cause`-Kette
+   * (s. importServiceOrder.ts stageError() - zeigt, WELCHER Schritt
+   * fehlschlug), der Stack der tiefsten (ursprünglichen) Ursache sowie der
+   * User-Agent-String. Auf einem Gerät ohne eigene Entwicklerwerkzeuge
+   * (z.B. ein iPhone ohne angeschlossenen Mac) ist das oft der einzige Weg,
+   * einen Fehler überhaupt konkret einzugrenzen.
+   */
+  function formatErrorDetail(err: unknown): string {
+    const lines: string[] = [];
+    let current: unknown = err;
+    let deepestStack: string | undefined;
+    while (current instanceof Error) {
+      lines.push(`${current.name}: ${current.message}`);
+      if (current.stack) deepestStack = current.stack;
+      current = current.cause;
+    }
+    if (lines.length === 0) lines.push(String(err));
+    if (deepestStack) lines.push('', deepestStack);
+    lines.push('', navigator.userAgent);
+    return lines.join('\n');
+  }
+
+  async function copyErrorDetail(): Promise<void> {
+    try {
+      await navigator.clipboard.writeText(importOrderErrorDetail);
+      importOrderErrorDetailCopied = true;
+      setTimeout(() => (importOrderErrorDetailCopied = false), 2000);
+    } catch {
+      // Clipboard-API nicht verfügbar/verweigert - der Text lässt sich
+      // in diesem Fall weiterhin wie gewohnt per Screenshot übermitteln,
+      // deshalb hier bewusst kein Fehlerhinweis.
+    }
+  }
+
   async function handleServiceOrderFile(event: Event): Promise<void> {
     const input = event.currentTarget as HTMLInputElement;
     const file = input.files?.[0];
@@ -213,6 +250,7 @@
     importOrderError = '';
     importOrderErrorDetail = '';
     importOrderErrorDetailOpen = false;
+    importOrderErrorDetailCopied = false;
     try {
       const result = await importServiceOrderFromFile(file, getTechnicianName() || undefined);
       if (!result.reused && result.materialCount > 0) {
@@ -233,7 +271,7 @@
       } else {
         importOrderError =
           'Serviceauftrag konnte nicht gelesen werden. Bitte erneut versuchen oder das PDF als Datei (nicht als Foto/Scan) prüfen.';
-        importOrderErrorDetail = err instanceof Error ? `${err.name}: ${err.message}` : String(err);
+        importOrderErrorDetail = formatErrorDetail(err);
       }
       console.error('Serviceauftrag-Import fehlgeschlagen', err);
     } finally {
@@ -324,7 +362,10 @@
         {importOrderErrorDetailOpen ? 'Technische Details ausblenden' : 'Technische Details anzeigen'}
       </button>
       {#if importOrderErrorDetailOpen}
-        <p class="error-detail">{importOrderErrorDetail}</p>
+        <pre class="error-detail">{importOrderErrorDetail}</pre>
+        <button type="button" class="error-detail-copy" onclick={copyErrorDetail}>
+          {importOrderErrorDetailCopied ? 'Kopiert!' : 'Technische Details kopieren'}
+        </button>
       {/if}
     {/if}
   {/if}
@@ -519,8 +560,22 @@
     color: var(--color-text-muted);
     font-size: 0.75rem;
     font-family: monospace;
+    white-space: pre-wrap;
     word-break: break-word;
     text-align: left;
+    max-height: 30vh;
+    overflow-y: auto;
+  }
+
+  .error-detail-copy {
+    display: block;
+    margin: 0 auto var(--space-3);
+    padding: var(--space-2) var(--space-3);
+    background: var(--color-surface-muted);
+    border: none;
+    border-radius: var(--radius-sm);
+    color: var(--color-text);
+    font-size: 0.8rem;
   }
 
   .search {

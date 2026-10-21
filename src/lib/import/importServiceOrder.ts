@@ -14,6 +14,24 @@ import { parseServiceOrderText, type ParsedServiceOrder, type ParsedServiceOrder
  */
 export class ServiceOrderImportError extends Error {}
 
+function errorMessage(err: unknown): string {
+  return err instanceof Error ? err.message : String(err);
+}
+
+/**
+ * Markiert einen unerwarteten Fehler mit der Pipeline-Stufe, in der er
+ * aufgetreten ist (Extraktion/Interpretation/Speichern) - bislang zeigten
+ * die "Technischen Details" in der UI (ReportList.svelte) nur
+ * Fehlername+Meldung ohne jeden Hinweis darauf, WELCHER der drei Schritte
+ * überhaupt fehlgeschlagen ist. Bei einem auf einem echten Gerät
+ * auftretenden, hier nicht reproduzierbaren Fehler ist das der erste nötige
+ * Anhaltspunkt zur weiteren Eingrenzung. `cause` erhält den Originalfehler
+ * (inkl. Stack), den ReportList.svelte zusätzlich mit anzeigt.
+ */
+function stageError(stage: string, err: unknown): Error {
+  return new Error(`[${stage}] ${errorMessage(err)}`, { cause: err });
+}
+
 export interface ServiceOrderImportResult {
   report: ServiceReport;
   parsed: ParsedServiceOrder;
@@ -68,8 +86,20 @@ function buildImportNotes(parsed: ParsedServiceOrder): string | undefined {
  * ReportList.svelte handleServiceOrderFile().
  */
 export async function importServiceOrderFromFile(file: File, technicianName?: string): Promise<ServiceOrderImportResult> {
-  const rawText = await extractPdfText(file);
-  const parsed = parseServiceOrderText(rawText);
+  let rawText: string;
+  try {
+    rawText = await extractPdfText(file);
+  } catch (err) {
+    throw stageError('PDF-Extraktion', err);
+  }
+
+  let parsed: ParsedServiceOrder;
+  try {
+    parsed = parseServiceOrderText(rawText);
+  } catch (err) {
+    throw stageError('Text-Interpretation', err);
+  }
+
   if (!parsed.projectNumber) {
     throw new ServiceOrderImportError(
       'Im PDF wurde keine Projektnummer gefunden - ist das wirklich ein Serviceauftrag im bekannten ELSA-Format?'
@@ -79,41 +109,45 @@ export async function importServiceOrderFromFile(file: File, technicianName?: st
   let report: ServiceReport;
   let reused = false;
 
-  const existingOpen = (await listReportsByProjectNumber(parsed.projectNumber)).find((r) => !r.finalizedAt);
-  if (existingOpen) {
-    const customerHint = existingOpen.customer ? ` (Kunde: ${existingOpen.customer})` : '';
-    const wantsExisting = confirm(
-      `Für Projekt "${parsed.projectNumber}"${customerHint} existiert bereits ein offener Bericht.\n\n` +
-        'OK = Material aus dem Serviceauftrag dort ergänzen\nAbbrechen = trotzdem einen neuen Bericht anlegen'
-    );
-    if (wantsExisting) {
-      report = existingOpen;
-      reused = true;
+  try {
+    const existingOpen = (await listReportsByProjectNumber(parsed.projectNumber)).find((r) => !r.finalizedAt);
+    if (existingOpen) {
+      const customerHint = existingOpen.customer ? ` (Kunde: ${existingOpen.customer})` : '';
+      const wantsExisting = confirm(
+        `Für Projekt "${parsed.projectNumber}"${customerHint} existiert bereits ein offener Bericht.\n\n` +
+          'OK = Material aus dem Serviceauftrag dort ergänzen\nAbbrechen = trotzdem einen neuen Bericht anlegen'
+      );
+      if (wantsExisting) {
+        report = existingOpen;
+        reused = true;
+      } else {
+        report = await createNewReport(parsed, technicianName);
+      }
     } else {
       report = await createNewReport(parsed, technicianName);
     }
-  } else {
-    report = await createNewReport(parsed, technicianName);
+
+    // Beim Wiederverwenden eines bestehenden Berichts (z.B. versehentlich
+    // zweimal denselben Serviceauftrag importiert) bereits vorhandene
+    // Positionen nicht erneut anlegen, sonst würde sich das Material
+    // duplizieren (gleiche Logik-Idee wie die Zeiten-Überlappungsprüfung in
+    // clockActions.ts: Doppelzählung vermeiden). Bei einem neu angelegten
+    // Bericht ist diese Prüfung naturgemäß immer leer.
+    const materialsToAdd = reused ? await filterAlreadyPresent(report.id, parsed.materials) : parsed.materials;
+
+    for (const material of materialsToAdd) {
+      await addMaterialItem(report.id, {
+        description: material.description,
+        quantity: material.quantity,
+        unit: material.unit,
+        plannedQuantity: material.quantity
+      });
+    }
+
+    return { report, parsed, materialCount: materialsToAdd.length, reused };
+  } catch (err) {
+    throw stageError('Bericht anlegen/Material speichern', err);
   }
-
-  // Beim Wiederverwenden eines bestehenden Berichts (z.B. versehentlich
-  // zweimal denselben Serviceauftrag importiert) bereits vorhandene
-  // Positionen nicht erneut anlegen, sonst würde sich das Material
-  // duplizieren (gleiche Logik-Idee wie die Zeiten-Überlappungsprüfung in
-  // clockActions.ts: Doppelzählung vermeiden). Bei einem neu angelegten
-  // Bericht ist diese Prüfung naturgemäß immer leer.
-  const materialsToAdd = reused ? await filterAlreadyPresent(report.id, parsed.materials) : parsed.materials;
-
-  for (const material of materialsToAdd) {
-    await addMaterialItem(report.id, {
-      description: material.description,
-      quantity: material.quantity,
-      unit: material.unit,
-      plannedQuantity: material.quantity
-    });
-  }
-
-  return { report, parsed, materialCount: materialsToAdd.length, reused };
 }
 
 async function filterAlreadyPresent(
