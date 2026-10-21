@@ -53,6 +53,28 @@
  * Worker-Datei aus node_modules/pdfjs-dist/legacy/build/ kopiert) muss
  * dieser Patch manuell erneut angewendet werden - die erste Zeile der
  * aktuellen public/pdfjs/pdf.worker.min.mjs zeigt den exakten Wortlaut.
+ *
+ * TATSÄCHLICHE URSACHE (per detailliertem Fehlerbericht von einem echten
+ * iPhone mit aktuellem iOS/Safari bestätigt - obiges
+ * `Promise.withResolvers` war trotz korrekter Behebung NICHT die Ursache
+ * des eigentlich gemeldeten Fehlers, blieb aber als zusätzliche
+ * Absicherung bestehen): pdfjs-dist implementiert `page.getTextContent()`
+ * intern als `for await (const value of this.streamTextContent(params))`
+ * über ein `ReadableStream` - das setzt Async-Iteration auf
+ * `ReadableStream` voraus (`ReadableStream.prototype[Symbol.asyncIterator]`),
+ * was in Safari erst mit WebKit 26 (2025) eingeführt wurde und je nach
+ * genauer Build-/Punktversion noch fehlen oder sich anders verhalten
+ * kann. Der Fehlerbericht zeigte den Absturz exakt in
+ * `getTextContent@pdf-*.js`, aufgerufen aus unserem eigenen
+ * `extractPdfText()`. Workaround, von mehreren Drittprojekten mit
+ * demselben pdfjs-dist-Fehlerbild bestätigt (s. Quellen unten): NICHT
+ * `page.getTextContent()` aufrufen, sondern dieselbe Aggregation manuell
+ * über `page.streamTextContent()` + `ReadableStream.getReader()`/`.read()`
+ * nachbauen - das ist die seit Jahren universell unterstützte,
+ * Promise-basierte Streaming-API (kein `for await`, keine
+ * Async-Iteration nötig). Siehe `collectPageTextItems()` unten.
+ * Quellen: https://github.com/keenanlk/stayput/pull/196,
+ * https://github.com/mjramos86/bookreader/pull/5
  */
 interface PromiseWithResolversConstructor {
   withResolvers?: <T>() => {
@@ -105,13 +127,42 @@ export async function extractPdfText(file: File): Promise<string> {
     const pageTexts: string[] = [];
     for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
       const page = await pdf.getPage(pageNum);
-      const textContent = await page.getTextContent();
-      pageTexts.push(linesFromTextContent(textContent.items).join('\n'));
+      const items = await collectPageTextItems(page);
+      pageTexts.push(linesFromTextContent(items).join('\n'));
     }
     return pageTexts.join('\n');
   } finally {
     await loadingTask.destroy();
   }
+}
+
+interface StreamedTextContentChunk {
+  items: unknown[];
+}
+
+function isStreamedTextContentChunk(value: unknown): value is StreamedTextContentChunk {
+  return typeof value === 'object' && value !== null && Array.isArray((value as { items?: unknown }).items);
+}
+
+/**
+ * Entspricht inhaltlich `(await page.getTextContent()).items`, aber ohne
+ * `for await` über das zurückgegebene ReadableStream (s. Dateikommentar
+ * oben, "TATSÄCHLICHE URSACHE") - stattdessen der klassische, überall
+ * unterstützte `getReader()`/`.read()`-Lesezyklus.
+ */
+async function collectPageTextItems(page: { streamTextContent(): ReadableStream }): Promise<unknown[]> {
+  const reader = page.streamTextContent().getReader();
+  const items: unknown[] = [];
+  try {
+    for (;;) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      if (isStreamedTextContentChunk(value)) items.push(...value.items);
+    }
+  } finally {
+    reader.releaseLock();
+  }
+  return items;
 }
 
 interface PositionedTextItem {
