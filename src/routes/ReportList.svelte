@@ -25,6 +25,14 @@
   let serviceOrderFileInput: HTMLInputElement | undefined;
   let importOrderBusy = $state(false);
   let importOrderError = $state('');
+  // Rohe technische Fehlermeldung (z.B. aus der PDF-Extraktion) - wird NICHT
+  // als Haupttext gezeigt (siehe handleServiceOrderFile, importOrderError
+  // bleibt dafür bewusst generisch/verständlich), aber optional einblendbar
+  // ("Technische Details"), damit sich ein Fehler auf einem Gerät ohne
+  // eigene Entwicklerwerkzeuge (z.B. iPhone ohne angeschlossenen Mac)
+  // trotzdem konkret zurückmelden lässt, statt nur "funktioniert nicht".
+  let importOrderErrorDetail = $state('');
+  let importOrderErrorDetailOpen = $state(false);
   let menuOpen = $state(false);
   let bulkExportOpen = $state(false);
   /** Der Bericht, in den aktuell eingecheckt ist (falls einer) - wird oben angepinnt und farblich hervorgehoben. */
@@ -203,6 +211,8 @@
 
     importOrderBusy = true;
     importOrderError = '';
+    importOrderErrorDetail = '';
+    importOrderErrorDetailOpen = false;
     try {
       const result = await importServiceOrderFromFile(file, getTechnicianName() || undefined);
       if (!result.reused && result.materialCount > 0) {
@@ -214,11 +224,17 @@
       // z.B. "keine Projektnummer gefunden") zeigt ihre eigene Meldung -
       // jeder andere (technische/unerwartete) Fehler bekommt stattdessen
       // diesen generischen, für den Nutzer verständlichen Hinweis, statt
-      // einer rohen Browser-/Bibliotheks-Fehlermeldung.
-      importOrderError =
-        err instanceof ServiceOrderImportError
-          ? err.message
-          : 'Serviceauftrag konnte nicht gelesen werden. Bitte erneut versuchen oder das PDF als Datei (nicht als Foto/Scan) prüfen.';
+      // einer rohen Browser-/Bibliotheks-Fehlermeldung. Die rohe Meldung
+      // bleibt trotzdem (ausgeblendet, s. Template) abrufbar - sonst lässt
+      // sich ein Fehler auf einem Gerät ohne eigene Entwicklerwerkzeuge
+      // (z.B. iPhone ohne angeschlossenen Mac) nicht konkret zurückmelden.
+      if (err instanceof ServiceOrderImportError) {
+        importOrderError = err.message;
+      } else {
+        importOrderError =
+          'Serviceauftrag konnte nicht gelesen werden. Bitte erneut versuchen oder das PDF als Datei (nicht als Foto/Scan) prüfen.';
+        importOrderErrorDetail = err instanceof Error ? `${err.name}: ${err.message}` : String(err);
+      }
       console.error('Serviceauftrag-Import fehlgeschlagen', err);
     } finally {
       importOrderBusy = false;
@@ -299,6 +315,18 @@
   {/if}
   {#if importOrderError}
     <p class="backup-error">{importOrderError}</p>
+    {#if importOrderErrorDetail}
+      <button
+        type="button"
+        class="error-detail-toggle"
+        onclick={() => (importOrderErrorDetailOpen = !importOrderErrorDetailOpen)}
+      >
+        {importOrderErrorDetailOpen ? 'Technische Details ausblenden' : 'Technische Details anzeigen'}
+      </button>
+      {#if importOrderErrorDetailOpen}
+        <p class="error-detail">{importOrderErrorDetail}</p>
+      {/if}
+    {/if}
   {/if}
   {#if importOrderBusy}
     <p class="backup-error import-busy">Serviceauftrag wird gelesen…</p>
@@ -471,6 +499,28 @@
 
   .backup-error.import-busy {
     color: var(--color-text-muted);
+  }
+
+  .error-detail-toggle {
+    display: block;
+    margin: 0 auto var(--space-3);
+    background: none;
+    border: none;
+    color: var(--color-text-muted);
+    font-size: 0.8rem;
+    text-decoration: underline;
+  }
+
+  .error-detail {
+    margin: 0 var(--space-4) var(--space-3);
+    padding: var(--space-2);
+    background: var(--color-surface-muted);
+    border-radius: var(--radius-sm);
+    color: var(--color-text-muted);
+    font-size: 0.75rem;
+    font-family: monospace;
+    word-break: break-word;
+    text-align: left;
   }
 
   .search {
