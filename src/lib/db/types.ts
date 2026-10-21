@@ -155,6 +155,14 @@ export interface MaterialItem {
   quantity: number;
   unit: string;
   articleNumber?: string;
+  /**
+   * Erwartete/geplante Menge laut importiertem Serviceauftrag (siehe
+   * src/lib/import/importServiceOrder.ts) - rein informativ zum Abgleich
+   * mit der tatsächlich verbauten `quantity`, bleibt bei Abweichung
+   * unverändert stehen. Nur gesetzt für per Import vorausgefüllte
+   * Positionen - manuell angelegte Positionen haben kein "Soll".
+   */
+  plannedQuantity?: number;
   createdAt: ISODateTime;
   updatedAt: ISODateTime;
 }

@@ -136,12 +136,30 @@ function buildMaterialSection(data: FullReport): (Paragraph | Table)[] {
     return [heading('Material'), new Paragraph({ text: 'Kein Material erfasst.' })];
   }
 
+  // Die "Geplant"-Spalte nur anzeigen, wenn mindestens eine Position eine
+  // geplante Menge trägt (siehe MaterialItem.plannedQuantity - nur bei aus
+  // einem Serviceauftrag importierten Positionen gesetzt) - für ganz normal
+  // manuell erfasste Berichte bleibt die Tabelle unverändert wie bisher.
+  const hasPlanned = materialItems.some((item) => item.plannedQuantity !== undefined);
+  const headers = hasPlanned
+    ? ['Bezeichnung', 'Geplant', 'Verbaut', 'Einheit', 'Artikelnummer']
+    : ['Bezeichnung', 'Menge', 'Einheit', 'Artikelnummer'];
+
   const rows = [
-    headerRow(['Bezeichnung', 'Menge', 'Einheit', 'Artikelnummer']),
+    headerRow(headers),
     ...materialItems.map((item, index) =>
-      dataRow([item.description, String(item.quantity), item.unit, item.articleNumber ?? '–'], {
-        zebra: index % 2 === 1
-      })
+      dataRow(
+        hasPlanned
+          ? [
+              item.description,
+              item.plannedQuantity !== undefined ? String(item.plannedQuantity) : '–',
+              String(item.quantity),
+              item.unit,
+              item.articleNumber ?? '–'
+            ]
+          : [item.description, String(item.quantity), item.unit, item.articleNumber ?? '–'],
+        { zebra: index % 2 === 1 }
+      )
     )
   ];
 

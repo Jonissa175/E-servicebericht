@@ -91,6 +91,19 @@ describe('buildReportDocx', () => {
     expect(blob.size).toBeGreaterThan(0);
   });
 
+  it('zeigt bei Material mit geplanter Menge (Serviceauftrag-Import) die zusätzliche "Geplant"-Spalte, ohne zu werfen', async () => {
+    const blob = await buildReportDocx(
+      fakeFullReport({
+        materialItems: [
+          fakeMaterialItem({ plannedQuantity: 4, quantity: 3 }),
+          fakeMaterialItem({ id: 'material-2', description: 'Manuell ergänzt', plannedQuantity: undefined })
+        ]
+      })
+    );
+    expect(blob.size).toBeGreaterThan(0);
+    expect(blob.type).toBe(DOCX_MIME_TYPE);
+  });
+
   it('funktioniert ohne Kurzbeschreibung/Ansprechpartner', async () => {
     const blob = await buildReportDocx(
       fakeFullReport({ report: fakeReport({ projectDescription: undefined, contactPerson: undefined }) })

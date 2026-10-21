@@ -1,6 +1,8 @@
 <script lang="ts">
   import { getGloballyActiveTimeEntry, listReports, type ReportFilter, type ServiceReport } from '../lib/db';
   import { buildBackupFile, parseBackupFile, restoreBackup, suggestedBackupFileName } from '../lib/backup/backupFile';
+  import { importServiceOrderFromFile } from '../lib/import/importServiceOrder';
+  import { getTechnicianName } from '../lib/settings';
   import DayClock from '../lib/components/DayClock.svelte';
   import ReportCard from '../lib/components/ReportCard.svelte';
   import Icon from '../lib/components/Icon.svelte';
@@ -16,6 +18,13 @@
   let backupBusy = $state(false);
   let backupError = $state('');
   let fileInput: HTMLInputElement | undefined;
+  // Serviceauftrag-Import (siehe menuTriggerServiceOrderImport()/
+  // handleServiceOrderFile() unten) - eigener Datei-Input (PDF statt JSON),
+  // eigener Busy-/Fehler-State, damit ein laufender Import nicht mit einem
+  // parallel laufenden Sicherung-Import verwechselt wird.
+  let serviceOrderFileInput: HTMLInputElement | undefined;
+  let importOrderBusy = $state(false);
+  let importOrderError = $state('');
   let menuOpen = $state(false);
   let bulkExportOpen = $state(false);
   /** Der Bericht, in den aktuell eingecheckt ist (falls einer) - wird oben angepinnt und farblich hervorgehoben. */
@@ -170,6 +179,44 @@
       backupBusy = false;
     }
   }
+
+  function menuTriggerServiceOrderImport(): void {
+    closeMenu();
+    serviceOrderFileInput?.click();
+  }
+
+  /**
+   * Liest einen als PDF ausgewählten ELSA-Serviceauftrag ein (siehe
+   * importServiceOrderFromFile(), src/lib/import/importServiceOrder.ts) und
+   * springt bei Erfolg direkt in den neu angelegten (oder bei bereits
+   * offenem Bericht zur selben Projektnummer: den dafür ergänzten) Bericht -
+   * erspart dem Monteur, Projektnummer, Kundendaten und erwartetes Material
+   * von Hand abzutippen. Alle übernommenen Felder bleiben dort wie gewohnt
+   * frei editierbar, da die Erkennung reine Heuristik auf ein festes
+   * Vorlagen-Format ist (kein Standard wie bei GS1-Codes).
+   */
+  async function handleServiceOrderFile(event: Event): Promise<void> {
+    const input = event.currentTarget as HTMLInputElement;
+    const file = input.files?.[0];
+    input.value = ''; // gleiche Datei muss danach erneut wählbar sein
+    if (!file) return;
+
+    importOrderBusy = true;
+    importOrderError = '';
+    try {
+      const result = await importServiceOrderFromFile(file, getTechnicianName() || undefined);
+      if (!result.reused && result.materialCount > 0) {
+        alert(`${result.materialCount} Materialposition(en) aus dem Serviceauftrag wurden vorausgefüllt übernommen.`);
+      }
+      navigate(`/reports/${result.report.id}`);
+    } catch (err) {
+      importOrderError =
+        err instanceof Error ? err.message : 'Serviceauftrag konnte nicht gelesen werden. Bitte erneut versuchen.';
+      console.error('Serviceauftrag-Import fehlgeschlagen', err);
+    } finally {
+      importOrderBusy = false;
+    }
+  }
 </script>
 
 <div class="screen">
@@ -204,6 +251,9 @@
           <button type="button" role="menuitem" onclick={() => menuNavigate('/einstellungen')}>
             <span class="menu-icon"><Icon name="settings" /></span><span>Einstellungen</span>
           </button>
+          <button type="button" role="menuitem" onclick={menuTriggerServiceOrderImport} disabled={importOrderBusy}>
+            <span class="menu-icon"><Icon name="file-text" /></span><span>Serviceauftrag importieren</span>
+          </button>
           <button type="button" role="menuitem" onclick={menuExportBackup} disabled={backupBusy}>
             <span class="menu-icon"><Icon name="download" /></span><span>Sicherung exportieren</span>
           </button>
@@ -228,10 +278,23 @@
         class="visually-hidden"
         onchange={handleImportFile}
       />
+      <input
+        bind:this={serviceOrderFileInput}
+        type="file"
+        accept="application/pdf,.pdf"
+        class="visually-hidden"
+        onchange={handleServiceOrderFile}
+      />
     </div>
   </header>
   {#if backupError}
     <p class="backup-error">{backupError}</p>
+  {/if}
+  {#if importOrderError}
+    <p class="backup-error">{importOrderError}</p>
+  {/if}
+  {#if importOrderBusy}
+    <p class="backup-error import-busy">Serviceauftrag wird gelesen…</p>
   {/if}
 
   <DayClock onChanged={loadActiveReportId} />
@@ -397,6 +460,10 @@
     color: var(--color-danger);
     font-size: 0.85rem;
     text-align: center;
+  }
+
+  .backup-error.import-busy {
+    color: var(--color-text-muted);
   }
 
   .search {

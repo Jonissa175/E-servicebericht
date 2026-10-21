@@ -57,7 +57,7 @@ export default defineConfig(() => ({
         // da per Workbox CacheFirst dauerhaft im Service Worker
         // zwischengespeichert - danach funktioniert auch dieses Feature
         // komplett offline, ohne die App insgesamt größer zu machen.
-        globIgnores: ['tesseract/**', 'tessdata/**'],
+        globIgnores: ['tesseract/**', 'tessdata/**', 'pdfjs/**'],
         runtimeCaching: [
           {
             urlPattern: ({ url }) => url.pathname.includes('/tesseract/') || url.pathname.includes('/tessdata/'),
@@ -65,6 +65,21 @@ export default defineConfig(() => ({
             options: {
               cacheName: 'ocr-assets',
               expiration: { maxEntries: 10, maxAgeSeconds: 60 * 60 * 24 * 365 },
+              cacheableResponse: { statuses: [0, 200] }
+            }
+          },
+          // Selbst gehosteter pdfjs-dist-Worker (public/pdfjs/, siehe
+          // src/lib/import/serviceOrderPdf.ts "Serviceauftrag importieren") -
+          // aus demselben Grund wie die OCR-Dateien oben nicht im normalen
+          // Precache (über 1 MB, nur fürs PDF-Import-Feature relevant),
+          // sondern erst beim ersten tatsächlichen Import geladen und danach
+          // dauerhaft zwischengespeichert.
+          {
+            urlPattern: ({ url }) => url.pathname.includes('/pdfjs/'),
+            handler: 'CacheFirst',
+            options: {
+              cacheName: 'pdfjs-assets',
+              expiration: { maxEntries: 5, maxAgeSeconds: 60 * 60 * 24 * 365 },
               cacheableResponse: { statuses: [0, 200] }
             }
           }

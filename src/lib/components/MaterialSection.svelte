@@ -23,6 +23,17 @@
   let formQuantity = $state('1');
   let formUnit = $state('Stk');
   let formArticleNumber = $state('');
+  // Erwartete/geplante Menge laut importiertem Serviceauftrag (siehe
+  // src/lib/import/importServiceOrder.ts) - nur beim Bearbeiten einer
+  // IMPORTIERTEN Position gesetzt (leer bei manuell angelegten Positionen,
+  // dort gibt es kein "Soll" und das Feld bleibt entsprechend ausgeblendet).
+  // `formHasPlannedQuantity` steuert bewusst getrennt von `formPlannedQuantity`
+  // selbst, OB das Feld überhaupt angezeigt wird - sonst würde es beim
+  // Leeren des Eingabefelds (z.B. um den Soll-Wert bewusst zu entfernen)
+  // mitten in der Bearbeitung verschwinden, da ein leerer String sonst
+  // selbst als "nicht gesetzt" durchginge.
+  let formPlannedQuantity = $state('');
+  let formHasPlannedQuantity = $state(false);
 
   let scannerOpen = $state(false);
   // Rohtext des zuletzt gescannten Codes, solange das Formular dadurch
@@ -51,6 +62,8 @@
     formQuantity = '1';
     formUnit = 'Stk';
     formArticleNumber = '';
+    formPlannedQuantity = '';
+    formHasPlannedQuantity = false;
     editingId = undefined;
     showForm = false;
     unitTouched = false;
@@ -68,6 +81,8 @@
     formQuantity = String(item.quantity);
     formUnit = item.unit;
     formArticleNumber = item.articleNumber ?? '';
+    formPlannedQuantity = item.plannedQuantity !== undefined ? String(item.plannedQuantity) : '';
+    formHasPlannedQuantity = item.plannedQuantity !== undefined;
     unitTouched = true; // Einheit eines bestehenden Eintrags nicht durch Katalog-Match überschreiben.
     lastScanRaw = undefined;
     showForm = true;
@@ -132,7 +147,16 @@
     const quantity = Number(formQuantity.replace(',', '.'));
     if (!description || !Number.isFinite(quantity) || quantity <= 0) return;
 
-    const payload = { description, quantity, unit: formUnit.trim() || 'Stk', articleNumber: formArticleNumber };
+    const trimmedPlanned = formHasPlannedQuantity ? formPlannedQuantity.trim() : '';
+    const plannedQuantity = trimmedPlanned ? Number(trimmedPlanned.replace(',', '.')) : undefined;
+
+    const payload = {
+      description,
+      quantity,
+      unit: formUnit.trim() || 'Stk',
+      articleNumber: formArticleNumber,
+      plannedQuantity: plannedQuantity !== undefined && Number.isFinite(plannedQuantity) ? plannedQuantity : undefined
+    };
     if (editingId) {
       await updateMaterialItem(editingId, payload);
     } else {
@@ -150,6 +174,14 @@
     await load();
     onChanged();
   }
+
+  /** "4 Stk · geplant 5 Stk · Art.-Nr. ..." - die geplante Menge (falls per Serviceauftrag-Import gesetzt) nur zum Abgleich, keine eigene Validierung. */
+  function formatMeta(item: MaterialItem): string {
+    const parts = [`${item.quantity} ${item.unit}`];
+    if (item.plannedQuantity !== undefined) parts.push(`geplant ${item.plannedQuantity} ${item.unit}`);
+    if (item.articleNumber) parts.push(`Art.-Nr. ${item.articleNumber}`);
+    return parts.join(' · ');
+  }
 </script>
 
 <div class="section">
@@ -166,16 +198,12 @@
             {#if locked}
               <div class="row-main">
                 <span class="desc">{item.description}</span>
-                <span class="meta">
-                  {item.quantity} {item.unit}{item.articleNumber ? ` · Art.-Nr. ${item.articleNumber}` : ''}
-                </span>
+                <span class="meta">{formatMeta(item)}</span>
               </div>
             {:else}
               <button type="button" class="row-main" onclick={() => startEdit(item)}>
                 <span class="desc">{item.description}</span>
-                <span class="meta">
-                  {item.quantity} {item.unit}{item.articleNumber ? ` · Art.-Nr. ${item.articleNumber}` : ''}
-                </span>
+                <span class="meta">{formatMeta(item)}</span>
               </button>
               <button type="button" class="delete" aria-label="Position löschen" onclick={() => remove(item)}>
                 <Icon name="trash" />
@@ -215,7 +243,7 @@
       </label>
       <div class="two-col">
         <label>
-          Menge
+          {formHasPlannedQuantity ? 'Menge (verbaut)' : 'Menge'}
           <input type="text" inputmode="decimal" bind:value={formQuantity} />
         </label>
         <label>
@@ -228,6 +256,12 @@
           </datalist>
         </label>
       </div>
+      {#if formHasPlannedQuantity}
+        <label>
+          Geplant laut Serviceauftrag
+          <input type="text" inputmode="decimal" bind:value={formPlannedQuantity} />
+        </label>
+      {/if}
       <label>
         Artikelnummer (optional)
         <input type="text" bind:value={formArticleNumber} />
