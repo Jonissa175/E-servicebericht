@@ -337,7 +337,7 @@ describe('buildReportDocx', () => {
     expect(xml.match(/r:embed="rId22"/g)?.length).toBe(8);
   });
 
-  it('zeigt in der "Beschreibung"-Spalte vorrangig die eigene Foto-Notiz statt des Zeitstempels', async () => {
+  it('zeigt in der "Beschreibung"-Spalte die eigene Foto-Notiz statt des Zeitstempels', async () => {
     const blob = await build(
       fakeFullReport({
         photos: [fakePhoto({ id: 'p1', takenAt: '2026-08-10T09:15:00.000Z', note: 'Sicherung vor dem Austausch' })]
@@ -348,10 +348,10 @@ describe('buildReportDocx', () => {
     expect(xml).not.toContain('10.08.2026');
   });
 
-  it('fällt ohne eigene Foto-Notiz weiterhin auf den formatierten Zeitstempel zurück (Spalte soll nie leer wirken)', async () => {
+  it('lässt die "Beschreibung"-Spalte ohne eigene Foto-Notiz bewusst leer (kein Zeitstempel-Fallback)', async () => {
     const blob = await build(fakeFullReport({ photos: [fakePhoto({ id: 'p1', takenAt: '2026-08-10T09:15:00.000Z', note: undefined })] }));
     const xml = await documentXmlOf(blob);
-    expect(xml).toContain('10.08.2026');
+    expect(xml).not.toContain('10.08.2026');
   });
 
   it('begrenzt eingebettete Fotos auf die 10 Zeilen der Vorlage, ohne zu werfen', async () => {
@@ -424,10 +424,10 @@ describe('buildReportDocx', () => {
     });
 
     it('übernimmt für die Foto-Beschreibungen die ursprüngliche Formatierung (Arial, 10pt)', async () => {
-      const blob = await build(fakeFullReport({ photos: [fakePhoto({ takenAt: '2026-08-10T09:15:00.000Z' })] }));
+      const blob = await build(fakeFullReport({ photos: [fakePhoto({ note: 'XFotoBeschreibungX' })] }));
       const xml = await documentXmlOf(blob);
-      const run = xml.match(/<w:r><w:rPr>[^]*?<\/w:rPr><w:t xml:space="preserve">10\.08\.2026[^<]*<\/w:t><\/w:r>/)?.[0];
-      expect(run, 'erwartet eine <w:rPr> unmittelbar vor dem Foto-Zeitstempel').toBeDefined();
+      const run = xml.match(/<w:r><w:rPr>[^]*?<\/w:rPr><w:t xml:space="preserve">XFotoBeschreibungX<\/w:t><\/w:r>/)?.[0];
+      expect(run, 'erwartet eine <w:rPr> unmittelbar vor der Foto-Beschreibung').toBeDefined();
       expect(run).toContain('<w:rFonts w:ascii="Arial" w:hAnsi="Arial" w:cs="Arial"/>');
       expect(run).toContain('<w:sz w:val="20"/>');
       expect(run).toContain('<w:szCs w:val="20"/>');
