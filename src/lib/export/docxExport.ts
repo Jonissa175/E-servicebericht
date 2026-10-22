@@ -2,7 +2,7 @@ import Docxtemplater from 'docxtemplater';
 import PizZip from 'pizzip';
 import templateUrl from '../../assets/templates/servicebericht-vorlage.docx';
 import type { MaterialItem, Photo, ServiceReport } from '../db/types';
-import { formatDateTimeDE } from '../utils/date';
+import { formatDateDE, formatDateTimeDE, todayISODate } from '../utils/date';
 import type { FullReport } from './getFullReport';
 import { injectTimeEntries } from './timesheetEmbed';
 
@@ -91,10 +91,31 @@ import { injectTimeEntries } from './timesheetEmbed';
  * vom Unterschriften-Pad erscheint in diesem Export nicht (ausdrücklich
  * so vom Kunden bestätigt, um das Vorlagen-Layout nicht zu verändern).
  *
+ * DURCHGEFÜHRTE ARBEITEN: Eigenes `ServiceReport.performedWork`-Feld (in
+ * der App eigenständig neben "Notizen"), füllt "Durchgeführte Arbeiten:".
+ * Das allgemeine `notes`-Feld landet NICHT (mehr) im Export: Die einzige
+ * andere inhaltlich passende Stelle in der Vorlage ("Interner Bericht/
+ * Bemerkungen/Ersatzteilnummern:") ist absichtlich als VERSTECKTER Text
+ * angelegt (`w:vanish` auf Label UND Wertfeld, rot/fett/kursiv im
+ * Quelltext) - ein Eintrag dort wäre im normal angezeigten/gedruckten
+ * Dokument unsichtbar, bis jemand "Ausgeblendeten Text"/Formatierungszeichen
+ * in Word einschaltet. Um `notes` nicht kommentarlos in einem für den
+ * Nutzer unsichtbaren Feld verschwinden zu lassen, bleibt dieses
+ * Vorlagenfeld bewusst weiterhin leer - `notes` ist aktuell NUR in der App
+ * selbst sichtbar, nicht im Export (siehe Abschlussbericht für Details,
+ * falls das anders gewünscht ist).
+ *
+ * ORT/DATUM (FUSSZEILE): Der Vorlagen-Tag für dieses Feld enthält den
+ * festen ELSA-Firmenstandort ("Kirchheim bei München, ") bereits als
+ * Literal-Text direkt neben dem `{exportDate}`-Tag (kein eigenes
+ * `location`-Datenfeld nötig) - `exportDate` ist das heutige Datum zum
+ * Zeitpunkt des Exports (nicht `report.createdAt`), mit `formatDateDE()`
+ * formatiert.
+ *
  * NICHT BEFÜLLTE FELDER: Mangels entsprechender Daten in Rivo bleiben
  * u.a. Bericht-Nr., Objektadresse/Einsatzort, E-Mail,
- * Bestellnummer/AB, Ort/Datum (für Fußzeile), Mehrungen, Festgestellte
- * Mängel, Angebot benötigt für, Interner Bericht/Bemerkungen, die
+ * Bestellnummer/AB, Mehrungen, Festgestellte
+ * Mängel, Angebot benötigt für, Interner Bericht/Bemerkungen (s.o.), die
  * "Lager (L)/Bestellung (B)"-Spalte der Materialtabelle sowie die
  * Statusfelder (Anlagenstatus, Auftrag, Sicherheitseinrichtungen,
  * Übernachtung(en), Hotelkosten, Folgeeinsatz) unangetastet leer -
@@ -160,8 +181,14 @@ function buildTemplateData(data: FullReport): Record<string, unknown> {
     contactPerson,
     contactPhone,
     projectDescription: report.projectDescription ?? '',
-    notes: report.notes ?? '',
+    performedWork: report.performedWork ?? '',
     signedByName: report.signedByName ?? '',
+    // Fester Firmenstandort (ELSA-Sitz, nicht der Einsatzort) + das heutige
+    // Datum (Tag des tatsächlichen Exports, nicht report.createdAt) für das
+    // "Ort/Datum"-Fußzeilenfeld - der feste Ortstext ist bereits Teil des
+    // Vorlagen-Tags selbst ("Kirchheim bei München, {exportDate}"), hier
+    // wird nur das Datum eingesetzt.
+    exportDate: formatDateDE(todayISODate()),
     materials: materialItems.map(materialRowData)
   };
   for (let i = 0; i < MAX_PHOTOS; i++) {

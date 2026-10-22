@@ -35,6 +35,14 @@ export interface ServiceReport {
   technicianName?: string;
   status: ReportStatus;
   notes?: string;
+  /**
+   * Eigenes Feld für die im Word-Export unter "Durchgeführte Arbeiten:"
+   * eintragene Beschreibung - bewusst GETRENNT vom allgemeinen `notes`-Feld
+   * ("Notizen"), weil der Nutzer dafür ein eigenständiges Feld in der App
+   * wollte statt `notes` doppelt zu verwenden. `notes` bleibt als freies
+   * "was ist mir sonst noch aufgefallen"-Feld bestehen.
+   */
+  performedWork?: string;
 
   /**
    * Geplante Mannstunden für diesen Einsatz (Summe über alle Rollen/

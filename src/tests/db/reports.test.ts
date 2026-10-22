@@ -46,6 +46,20 @@ describe('reports repository', () => {
     expect(report.notes).toBe('Erstbegehung erfolgt');
   });
 
+  it('speichert "Durchgeführte Arbeiten" getrennt von Notizen (performedWork) und lässt es nachträglich ändern', async () => {
+    const report = await createReport({
+      projectNumber: '2026-002c',
+      notes: 'Allgemeine Notiz',
+      performedWork: 'Sicherung ersetzt'
+    });
+    expect(report.notes).toBe('Allgemeine Notiz');
+    expect(report.performedWork).toBe('Sicherung ersetzt');
+
+    const updated = await updateReport(report.id, { performedWork: 'Sicherung ersetzt, Leitung geprüft' });
+    expect(updated?.performedWork).toBe('Sicherung ersetzt, Leitung geprüft');
+    expect(updated?.notes).toBe('Allgemeine Notiz');
+  });
+
   it('speichert Telefonnummer des Ansprechpartners getrennt vom Namen (contactPhone) und lässt sie nachträglich ändern', async () => {
     const report = await createReport({
       projectNumber: '2026-002b',

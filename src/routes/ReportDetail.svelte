@@ -46,6 +46,7 @@
   // erneutes Eintippen bei jedem einzelnen Bericht.
   let technicianName = $state(isNewRoute ? getTechnicianName() : '');
   let notes = $state('');
+  let performedWork = $state('');
   let status = $state<ReportStatus>('open');
   // Als Text-State wie die übrigen Felder (leer = nicht gesetzt), nicht als
   // Zahl - sonst müsste jede Zwischeneingabe beim Tippen (z.B. "1" vor dem
@@ -160,6 +161,7 @@
         contactPhone: contactPhone || undefined,
         technicianName: technicianName || undefined,
         notes: notes || undefined,
+        performedWork: performedWork || undefined,
         plannedLaborHours: parsePlannedLaborHours()
       });
       reportId = created.id;
@@ -183,6 +185,7 @@
       contactPhone: contactPhone || undefined,
       technicianName: technicianName || undefined,
       notes: notes || undefined,
+      performedWork: performedWork || undefined,
       status,
       plannedLaborHours: parsePlannedLaborHours()
     });
@@ -319,6 +322,7 @@
       contactPhone = report.contactPhone ?? '';
       technicianName = report.technicianName ?? '';
       notes = report.notes ?? '';
+      performedWork = report.performedWork ?? '';
       status = report.status;
       plannedLaborHours = report.plannedLaborHours !== undefined ? String(report.plannedLaborHours) : '';
       timeEntryCount = report.timeEntryCount;
@@ -811,6 +815,17 @@
                 </div>
               </div>
             {/if}
+            <label>
+              Durchgeführte Arbeiten
+              <textarea
+                rows="5"
+                bind:value={performedWork}
+                oninput={onFieldChange}
+                onblur={flushNow}
+                placeholder="Was wurde beim Einsatz konkret gemacht?"
+                disabled={locked}
+              ></textarea>
+            </label>
             <label>
               Notizen
               <textarea

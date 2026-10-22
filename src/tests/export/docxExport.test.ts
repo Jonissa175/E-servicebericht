@@ -191,7 +191,7 @@ describe('buildReportDocx', () => {
           technicianName: 'Erika Musterfrau',
           contactPerson: 'Herr Ansprechpartner',
           projectDescription: 'Testprojekt Beschreibung',
-          notes: 'Testnotiz Zeile eins'
+          performedWork: 'Testbeschreibung der Arbeiten'
         })
       })
     );
@@ -202,7 +202,24 @@ describe('buildReportDocx', () => {
     expect(xml.match(/Erika Musterfrau/g)?.length).toBe(2);
     expect(xml).toContain('Herr Ansprechpartner');
     expect(xml).toContain('Testprojekt Beschreibung');
-    expect(xml).toContain('Testnotiz Zeile eins');
+    expect(xml).toContain('Testbeschreibung der Arbeiten');
+  });
+
+  it('traegt das Export-Datum (heutiges Datum, nicht report.createdAt) mit dem festen Firmenstandort in das Ort/Datum-Fußzeilenfeld ein', async () => {
+    const blob = await build(fakeFullReport({ report: fakeReport({ createdAt: '2020-01-01T00:00:00.000Z' }) }));
+    const xml = await documentXmlOf(blob);
+    const today = new Date();
+    const expectedDate = `${String(today.getDate()).padStart(2, '0')}.${String(today.getMonth() + 1).padStart(2, '0')}.${today.getFullYear()}`;
+    expect(xml).toContain(`Kirchheim bei München, ${expectedDate}`);
+  });
+
+  it('befuellt "Durchgefuehrte Arbeiten" ausschliesslich aus performedWork, nicht aus notes', async () => {
+    const blob = await build(
+      fakeFullReport({ report: fakeReport({ performedWork: 'Sicherung ersetzt', notes: 'Kunde war unzufrieden mit Wartezeit' }) })
+    );
+    const xml = await documentXmlOf(blob);
+    expect(xml).toContain('Sicherung ersetzt');
+    expect(xml).not.toContain('Kunde war unzufrieden mit Wartezeit');
   });
 
   it('traegt Ansprechpartner-Name und Telefonnummer in die zwei getrennten Felder der Vorlage ein', async () => {
@@ -345,7 +362,7 @@ describe('buildReportDocx', () => {
       expect(run).toContain('<w:sz w:val="32"/>');
     });
 
-    it('übernimmt für Kundenname/Ansprechpartner/Techniker/Beschreibung/Notizen die ursprüngliche Formatierung (Arial, 8pt)', async () => {
+    it('übernimmt für Kundenname/Ansprechpartner/Techniker/Beschreibung/Durchgeführte-Arbeiten die ursprüngliche Formatierung (Arial, 8pt)', async () => {
       const blob = await build(
         fakeFullReport({
           report: fakeReport({
@@ -353,12 +370,12 @@ describe('buildReportDocx', () => {
             contactPerson: 'XAnsprechpartnerX',
             technicianName: 'XTechnikerX',
             projectDescription: 'XBeschreibungX',
-            notes: 'XNotizX'
+            performedWork: 'XArbeitenX'
           })
         })
       );
       const xml = await documentXmlOf(blob);
-      for (const value of ['XTestkundeX', 'XAnsprechpartnerX', 'XTechnikerX', 'XBeschreibungX', 'XNotizX']) {
+      for (const value of ['XTestkundeX', 'XAnsprechpartnerX', 'XTechnikerX', 'XBeschreibungX', 'XArbeitenX']) {
         const run = xml.match(new RegExp(`<w:r><w:rPr>[^]*?</w:rPr><w:t xml:space="preserve">${value}</w:t></w:r>`))?.[0];
         expect(run, `erwartet eine <w:rPr> unmittelbar vor "${value}"`).toBeDefined();
         expect(run).toContain('<w:rFonts w:ascii="Arial" w:hAnsi="Arial" w:cs="Arial"/>');
