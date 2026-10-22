@@ -75,7 +75,11 @@ import { injectTimeEntries } from './timesheetEmbed';
  * der Tabelle nicht unerwartet ändert). Nicht befüllte Zeilen (weniger
  * als 10 Fotos im Bericht) behalten bewusst das Platzhalterbild - exakt
  * das Verhalten, das auch beim manuellen Ausfüllen der Vorlage in Word
- * entstünde.
+ * entstünde. Die "Beschreibung"-Spalte derselben Zeile zeigt vorrangig
+ * `photo.note` (eigene, pro Foto unabhängige Notiz, siehe PhotoSection.svelte)
+ * - nur wenn dafür (noch) keine Notiz eingetragen wurde, fällt sie auf den
+ * bisherigen formatierten Aufnahme-Zeitstempel zurück, damit die Spalte nie
+ * komplett leer wirkt.
  *
  * ZEITEN: Die "Zeiten"-Tabelle in der Vorlage ist kein Word-Tabellenfeld,
  * sondern ein eingebettetes Excel-97-2003-Arbeitsblatt (OLE-Objekt) - Details
@@ -197,7 +201,11 @@ function buildTemplateData(data: FullReport): Record<string, unknown> {
   };
   for (let i = 0; i < MAX_PHOTOS; i++) {
     const photo = photos[i];
-    templateData[`photo${i}Desc`] = photo ? formatDateTimeDE(photo.takenAt) : '';
+    // Eigene Foto-Notiz hat Vorrang - ohne eine solche (häufigster Fall bei
+    // älteren, vor Einführung dieses Felds aufgenommenen Fotos) bleibt der
+    // bisherige Zeitstempel als Fallback, damit die Spalte nie komplett
+    // leer wirkt.
+    templateData[`photo${i}Desc`] = photo ? photo.note || formatDateTimeDE(photo.takenAt) : '';
   }
   return templateData;
 }

@@ -209,6 +209,15 @@ export interface Photo {
   height?: number;
   sizeBytes: number;
   takenAt: ISODateTime;
+  /**
+   * Eigene, unabhängige Notiz zu GENAU diesem Foto (nicht zu verwechseln
+   * mit `ServiceReport.notes`, das für alle Fotos/den ganzen Bericht
+   * gemeinsam gilt) - frei editierbar direkt im Fotos-Tab. Füllt im
+   * Word-Export die "Beschreibung"-Spalte der Dokumentations-Tabelle
+   * (Fallback auf den formatierten Zeitstempel, falls leer - siehe
+   * docxExport.ts).
+   */
+  note?: string;
 }
 
 export interface ServiceBerichtDB extends DBSchema {

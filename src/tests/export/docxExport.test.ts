@@ -337,6 +337,23 @@ describe('buildReportDocx', () => {
     expect(xml.match(/r:embed="rId22"/g)?.length).toBe(8);
   });
 
+  it('zeigt in der "Beschreibung"-Spalte vorrangig die eigene Foto-Notiz statt des Zeitstempels', async () => {
+    const blob = await build(
+      fakeFullReport({
+        photos: [fakePhoto({ id: 'p1', takenAt: '2026-08-10T09:15:00.000Z', note: 'Sicherung vor dem Austausch' })]
+      })
+    );
+    const xml = await documentXmlOf(blob);
+    expect(xml).toContain('Sicherung vor dem Austausch');
+    expect(xml).not.toContain('10.08.2026');
+  });
+
+  it('fällt ohne eigene Foto-Notiz weiterhin auf den formatierten Zeitstempel zurück (Spalte soll nie leer wirken)', async () => {
+    const blob = await build(fakeFullReport({ photos: [fakePhoto({ id: 'p1', takenAt: '2026-08-10T09:15:00.000Z', note: undefined })] }));
+    const xml = await documentXmlOf(blob);
+    expect(xml).toContain('10.08.2026');
+  });
+
   it('begrenzt eingebettete Fotos auf die 10 Zeilen der Vorlage, ohne zu werfen', async () => {
     const manyPhotos = Array.from({ length: 12 }, (_, i) => fakePhoto({ id: `p${i}`, takenAt: `2026-08-10T0${i % 9}:00:00.000Z` }));
     const blob = await build(fakeFullReport({ photos: manyPhotos }));

@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { addPhoto, deletePhoto, listPhotos } from '../db/photos';
+  import { addPhoto, deletePhoto, listPhotos, updatePhoto } from '../db/photos';
   import type { Photo } from '../db/types';
   import { createThumbnail } from '../utils/image';
   import Icon from './Icon.svelte';
@@ -11,6 +11,11 @@
   let uploading = $state(false);
   let uploadError = $state<string | undefined>();
   let thumbnailUrls = $state<Record<string, string>>({});
+  // Lokaler Entwurf der Foto-Notizen, getrennt von `photos` - wie bei den
+  // übrigen Textfeldern in der App (z.B. ReportDetail.svelte) tippt man in
+  // ein eigenes State-Objekt, nicht direkt in die geladene Liste, und
+  // speichert erst onblur.
+  let noteDrafts = $state<Record<string, string>>({});
 
   let viewerPhoto = $state<Photo | undefined>();
   let viewerUrl = $state<string | undefined>();
@@ -37,15 +42,26 @@
     const loaded = await listPhotos(reportId);
     const nextThumbnailUrls: Record<string, string> = {};
     const nextObjectUrls: string[] = [];
+    const nextNoteDrafts: Record<string, string> = {};
     for (const photo of loaded) {
       const url = URL.createObjectURL(photo.thumbnailBlob);
       nextThumbnailUrls[photo.id] = url;
       nextObjectUrls.push(url);
+      nextNoteDrafts[photo.id] = photo.note ?? '';
     }
     photos = loaded;
     thumbnailUrls = nextThumbnailUrls;
     activeObjectUrls = nextObjectUrls;
+    noteDrafts = nextNoteDrafts;
     loading = false;
+  }
+
+  /** Speichert die Notiz GENAU dieses einen Fotos - unabhängig von allen anderen Fotos. */
+  async function savePhotoNote(photoId: string): Promise<void> {
+    const draft = noteDrafts[photoId] ?? '';
+    const updated = await updatePhoto(photoId, { note: draft });
+    if (!updated) return;
+    photos = photos.map((photo) => (photo.id === photoId ? updated : photo));
   }
 
   $effect(() => {
@@ -155,11 +171,23 @@
   {:else if photos.length === 0}
     <p class="hint">Noch keine Fotos vorhanden.</p>
   {:else}
-    <div class="grid">
+    <div class="photo-list">
       {#each photos as photo (photo.id)}
-        <button type="button" class="thumb" onclick={() => openViewer(photo)}>
-          <img src={thumbnailUrls[photo.id]} alt="Einsatzfoto" loading="lazy" />
-        </button>
+        <div class="photo-row">
+          <button type="button" class="thumb" onclick={() => openViewer(photo)}>
+            <img src={thumbnailUrls[photo.id]} alt="Einsatzfoto" loading="lazy" />
+          </button>
+          <label class="note-label">
+            Notiz zu diesem Foto
+            <textarea
+              rows="2"
+              bind:value={noteDrafts[photo.id]}
+              onblur={() => savePhotoNote(photo.id)}
+              placeholder="Was zeigt dieses Foto?"
+              disabled={locked}
+            ></textarea>
+          </label>
+        </div>
       {/each}
     </div>
   {/if}
@@ -212,14 +240,22 @@
     text-align: center;
   }
 
-  .grid {
-    display: grid;
-    grid-template-columns: repeat(3, 1fr);
-    gap: var(--space-2);
+  .photo-list {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-3);
+  }
+
+  .photo-row {
+    display: flex;
+    gap: var(--space-3);
+    align-items: flex-start;
   }
 
   .thumb {
-    aspect-ratio: 1;
+    flex: 0 0 auto;
+    width: 84px;
+    height: 84px;
     padding: 0;
     border: 1px solid var(--color-border);
     border-radius: var(--radius-sm);
@@ -233,6 +269,19 @@
     height: 100%;
     object-fit: cover;
     display: block;
+  }
+
+  .note-label {
+    flex: 1;
+    min-width: 0;
+    font-size: 0.85em;
+    color: var(--color-text-muted);
+  }
+
+  .note-label textarea {
+    width: 100%;
+    margin-top: 4px;
+    resize: vertical;
   }
 
   .viewer {
