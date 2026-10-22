@@ -219,7 +219,29 @@ describe('buildReportDocx', () => {
     );
     const xml = await documentXmlOf(blob);
     expect(xml).toContain('Sicherung ersetzt');
-    expect(xml).not.toContain('Kunde war unzufrieden mit Wartezeit');
+    // "Kunde war unzufrieden..." landet NICHT bei "Durchgeführte Arbeiten",
+    // sondern (separat geprüft unten) im versteckten "Interner Bericht"-Feld.
+    const performedWorkRun = xml.match(/<w:r><w:rPr>[^]*?<\/w:rPr><w:t xml:space="preserve">Sicherung ersetzt<\/w:t><\/w:r>/)?.[0];
+    expect(performedWorkRun, 'erwartet einen Run für performedWork').toBeDefined();
+    expect(performedWorkRun).not.toContain('Kunde war unzufrieden mit Wartezeit');
+  });
+
+  it('trägt notes als versteckten Text (w:vanish) in das "Interner Bericht/Bemerkungen/Ersatzteilnummern:"-Feld ein, ohne die Formatierung/Sichtbarkeit zu verändern', async () => {
+    const blob = await build(fakeFullReport({ report: fakeReport({ notes: 'Kunde war unzufrieden mit Wartezeit' }) }));
+    const xml = await documentXmlOf(blob);
+    expect(xml).toContain('Kunde war unzufrieden mit Wartezeit');
+    const run = xml.match(/<w:r[^>]*><w:rPr>[^]*?<\/w:rPr><w:t xml:space="preserve">Kunde war unzufrieden mit Wartezeit<\/w:t><\/w:r>/)?.[0];
+    expect(run, 'erwartet eine <w:rPr> unmittelbar vor dem Textlauf').toBeDefined();
+    // Die Sichtbarkeits-/Formatierungseigenschaften der Vorlage bleiben exakt erhalten.
+    expect(run).toContain('<w:vanish/>');
+    expect(run).toContain('<w:rFonts w:ascii="Arial" w:hAnsi="Arial" w:cs="Arial"/>');
+    expect(run).toContain('<w:sz w:val="16"/>');
+    expect(run).toContain('<w:szCs w:val="16"/>');
+  });
+
+  it('funktioniert ohne Notizen (verstecktes Feld bleibt leer, kein Fehler)', async () => {
+    const blob = await build(fakeFullReport({ report: fakeReport({ notes: undefined }) }));
+    expect(blob.size).toBeGreaterThan(0);
   });
 
   it('traegt Ansprechpartner-Name und Telefonnummer in die zwei getrennten Felder der Vorlage ein', async () => {

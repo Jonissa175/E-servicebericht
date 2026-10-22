@@ -93,17 +93,20 @@ import { injectTimeEntries } from './timesheetEmbed';
  *
  * DURCHGEFÜHRTE ARBEITEN: Eigenes `ServiceReport.performedWork`-Feld (in
  * der App eigenständig neben "Notizen"), füllt "Durchgeführte Arbeiten:".
- * Das allgemeine `notes`-Feld landet NICHT (mehr) im Export: Die einzige
- * andere inhaltlich passende Stelle in der Vorlage ("Interner Bericht/
- * Bemerkungen/Ersatzteilnummern:") ist absichtlich als VERSTECKTER Text
- * angelegt (`w:vanish` auf Label UND Wertfeld, rot/fett/kursiv im
- * Quelltext) - ein Eintrag dort wäre im normal angezeigten/gedruckten
- * Dokument unsichtbar, bis jemand "Ausgeblendeten Text"/Formatierungszeichen
- * in Word einschaltet. Um `notes` nicht kommentarlos in einem für den
- * Nutzer unsichtbaren Feld verschwinden zu lassen, bleibt dieses
- * Vorlagenfeld bewusst weiterhin leer - `notes` ist aktuell NUR in der App
- * selbst sichtbar, nicht im Export (siehe Abschlussbericht für Details,
- * falls das anders gewünscht ist).
+ *
+ * NOTIZEN → "INTERNER BERICHT" (VERSTECKTER TEXT, ABSICHTLICH SO
+ * GEWÜNSCHT): Das allgemeine `notes`-Feld landet in der einzigen dafür
+ * inhaltlich passenden Vorlagen-Stelle, "Interner Bericht/Bemerkungen/
+ * Ersatzteilnummern:" - diese ist im Vorlagen-Quelltext als VERSTECKTER
+ * Text angelegt (`w:vanish` auf Label UND Wertfeld, rot/fett/kursiv im
+ * Quelltext), ein Eintrag dort ist im normal angezeigten/gedruckten
+ * Dokument deshalb unsichtbar, bis jemand "Ausgeblendeten Text"/
+ * Formatierungszeichen in Word einschaltet - genau das ist hier
+ * ausdrücklich gewollt (passend zum Feldnamen "Interner Bericht": nicht
+ * für die normale Kundenansicht gedacht). Die `rPr` des Zielruns (inkl.
+ * `w:vanish`) wird dabei exakt unverändert übernommen - nur der
+ * Textinhalt wird ausgetauscht, die Vorlagen-Formatierung/Sichtbarkeit
+ * bleibt unangetastet.
  *
  * ORT/DATUM (FUSSZEILE): Der Vorlagen-Tag für dieses Feld enthält den
  * festen ELSA-Firmenstandort ("Kirchheim bei München, ") bereits als
@@ -115,7 +118,7 @@ import { injectTimeEntries } from './timesheetEmbed';
  * NICHT BEFÜLLTE FELDER: Mangels entsprechender Daten in Rivo bleiben
  * u.a. Bericht-Nr., Objektadresse/Einsatzort, E-Mail,
  * Bestellnummer/AB, Mehrungen, Festgestellte
- * Mängel, Angebot benötigt für, Interner Bericht/Bemerkungen (s.o.), die
+ * Mängel, Angebot benötigt für, die
  * "Lager (L)/Bestellung (B)"-Spalte der Materialtabelle sowie die
  * Statusfelder (Anlagenstatus, Auftrag, Sicherheitseinrichtungen,
  * Übernachtung(en), Hotelkosten, Folgeeinsatz) unangetastet leer -
@@ -182,6 +185,7 @@ function buildTemplateData(data: FullReport): Record<string, unknown> {
     contactPhone,
     projectDescription: report.projectDescription ?? '',
     performedWork: report.performedWork ?? '',
+    notes: report.notes ?? '',
     signedByName: report.signedByName ?? '',
     // Fester Firmenstandort (ELSA-Sitz, nicht der Einsatzort) + das heutige
     // Datum (Tag des tatsächlichen Exports, nicht report.createdAt) für das
