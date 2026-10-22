@@ -19,6 +19,19 @@ export interface ServiceReport {
   projectDescription?: string;
   customer?: string;
   contactPerson?: string;
+  /**
+   * Telefonnummer des Ansprechpartners, getrennt von `contactPerson`
+   * (reiner Name) - beim Serviceauftrag-Import automatisch aus der dort
+   * separat erkannten Nummer vorbefüllt (siehe importServiceOrder.ts),
+   * sonst frei editierbar. Vorher (bis zu diesem Feld) wurde die Nummer
+   * fälschlich in den `contactPerson`-Text gemergt ("Name (Tel. 0123...)")
+   * - ältere, so gespeicherte Berichte haben deshalb weiterhin dieses
+   * Altformat in `contactPerson` und KEIN `contactPhone`; der Word-Export
+   * erkennt das rein darstellungsseitig und trennt es dort wieder auf
+   * (siehe `splitContactPersonAndPhone()` in docxExport.ts) - die
+   * gespeicherten Daten selbst werden dabei nicht verändert.
+   */
+  contactPhone?: string;
   technicianName?: string;
   status: ReportStatus;
   notes?: string;

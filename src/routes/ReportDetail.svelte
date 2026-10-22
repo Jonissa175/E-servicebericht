@@ -40,6 +40,7 @@
   let projectDescription = $state('');
   let customer = $state('');
   let contactPerson = $state('');
+  let contactPhone = $state('');
   // Bei einem neuen Bericht mit dem zuletzt verwendeten Techniker-Namen
   // vorausfüllen (lokal auf dem Gerät gemerkt, siehe lib/settings.ts) - erspart
   // erneutes Eintippen bei jedem einzelnen Bericht.
@@ -156,6 +157,7 @@
         projectDescription: projectDescription || undefined,
         customer: customer || undefined,
         contactPerson: contactPerson || undefined,
+        contactPhone: contactPhone || undefined,
         technicianName: technicianName || undefined,
         notes: notes || undefined,
         plannedLaborHours: parsePlannedLaborHours()
@@ -178,6 +180,7 @@
       projectDescription: projectDescription || undefined,
       customer: customer || undefined,
       contactPerson: contactPerson || undefined,
+      contactPhone: contactPhone || undefined,
       technicianName: technicianName || undefined,
       notes: notes || undefined,
       status,
@@ -279,6 +282,7 @@
     if (!projectDescription && openExisting.projectDescription) projectDescription = openExisting.projectDescription;
     if (!customer && openExisting.customer) customer = openExisting.customer;
     if (!contactPerson && openExisting.contactPerson) contactPerson = openExisting.contactPerson;
+    if (!contactPhone && openExisting.contactPhone) contactPhone = openExisting.contactPhone;
     onFieldChange();
   }
 
@@ -312,6 +316,7 @@
       projectDescription = report.projectDescription ?? '';
       customer = report.customer ?? '';
       contactPerson = report.contactPerson ?? '';
+      contactPhone = report.contactPhone ?? '';
       technicianName = report.technicianName ?? '';
       notes = report.notes ?? '';
       status = report.status;
@@ -687,6 +692,18 @@
             oninput={onFieldChange}
             onblur={flushNow}
             placeholder="Name des Ansprechpartners vor Ort"
+            disabled={locked}
+          />
+        </label>
+
+        <label>
+          Telefon (Ansprechpartner)
+          <input
+            type="tel"
+            bind:value={contactPhone}
+            oninput={onFieldChange}
+            onblur={flushNow}
+            placeholder="z.B. 0174 8425400"
             disabled={locked}
           />
         </label>

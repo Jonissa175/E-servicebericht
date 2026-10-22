@@ -111,11 +111,13 @@ async function build(data: FullReport): Promise<Blob> {
 /**
  * Eigenständiger, von `timesheetEmbed.ts` UNABHÄNGIGER Mini-BIFF8-Leser nur
  * für diesen Test: liest aus der eingebetteten Excel-Arbeitsmappe die
- * Datenzeilen 2-16 (Spalten 0/4/5 - Datum/von/bis) aus, um tatsächlich zu
- * beweisen, dass die Werte an der richtigen Stelle in der richtigen Zelle
- * stehen, statt nur die Produktionslogik erneut aufzurufen.
+ * Datenzeilen 2-16 (Spalten 0/1/4/5 - Datum/Techniker/von/bis) aus, um
+ * tatsächlich zu beweisen, dass die Werte an der richtigen Stelle in der
+ * richtigen Zelle stehen, statt nur die Produktionslogik erneut aufzurufen.
  */
-function readEmbeddedTimesheetRows(xlsBytes: Uint8Array): Map<number, { date?: string; start?: number; end?: number }> {
+function readEmbeddedTimesheetRows(
+  xlsBytes: Uint8Array
+): Map<number, { date?: string; technician?: string; start?: number; end?: number }> {
   // BOF/Zell-Records liegen NICHT direkt in den rohen OLE2-Containerbytes,
   // sondern im "Workbook"-Stream darin - deshalb zuerst per `cfb` entpacken.
   const container = CFB.parse(xlsBytes);
@@ -141,7 +143,7 @@ function readEmbeddedTimesheetRows(xlsBytes: Uint8Array): Map<number, { date?: s
   }
   if (worksheetStart < 0) throw new Error('Worksheet-BOF nicht gefunden');
 
-  const rows = new Map<number, { date?: string; start?: number; end?: number }>();
+  const rows = new Map<number, { date?: string; technician?: string; start?: number; end?: number }>();
   pos = worksheetStart;
   while (pos + 4 <= workbookBytes.length) {
     const type = view.getUint16(pos, true);
@@ -155,6 +157,7 @@ function readEmbeddedTimesheetRows(xlsBytes: Uint8Array): Map<number, { date?: s
       const chars = new Uint8Array(workbookBytes.buffer, workbookBytes.byteOffset + bodyStart + 9, cch);
       const text = String.fromCharCode(...chars);
       if (col === 0) rows.set(row, { ...rows.get(row), date: text });
+      if (col === 1) rows.set(row, { ...rows.get(row), technician: text });
     } else if (type === 0x0203 /* NUMBER */) {
       const row = view.getUint16(bodyStart, true);
       const col = view.getUint16(bodyStart + 2, true);
@@ -200,6 +203,36 @@ describe('buildReportDocx', () => {
     expect(xml).toContain('Herr Ansprechpartner');
     expect(xml).toContain('Testprojekt Beschreibung');
     expect(xml).toContain('Testnotiz Zeile eins');
+  });
+
+  it('traegt Ansprechpartner-Name und Telefonnummer in die zwei getrennten Felder der Vorlage ein', async () => {
+    const blob = await build(
+      fakeFullReport({ report: fakeReport({ contactPerson: 'Sabine Hanslbauer', contactPhone: '0174 8425400' }) })
+    );
+    const xml = await documentXmlOf(blob);
+    expect(xml).toContain('Sabine Hanslbauer');
+    expect(xml).toContain('0174 8425400');
+    // Die Telefonnummer darf NICHT (mehr) in den Namen gemischt sein.
+    expect(xml).not.toContain('Sabine Hanslbauer (Tel.');
+  });
+
+  it('erkennt bei Altberichten ohne contactPhone das frühere Merge-Format "Name (Tel. ...)" in contactPerson und trennt es für den Export wieder auf', async () => {
+    const blob = await build(
+      fakeFullReport({
+        report: fakeReport({ contactPerson: 'Sabine Hanslbauer (Tel. 01748425400)', contactPhone: undefined })
+      })
+    );
+    const xml = await documentXmlOf(blob);
+    expect(xml).toContain('Sabine Hanslbauer');
+    expect(xml).toContain('01748425400');
+    expect(xml).not.toContain('Sabine Hanslbauer (Tel.');
+  });
+
+  it('funktioniert ohne Ansprechpartner-Telefonnummer (Feld bleibt leer, kein Fehler)', async () => {
+    const blob = await build(fakeFullReport({ report: fakeReport({ contactPerson: 'Sabine Hanslbauer', contactPhone: undefined }) }));
+    expect(blob.size).toBeGreaterThan(0);
+    const xml = await documentXmlOf(blob);
+    expect(xml).toContain('Sabine Hanslbauer');
   });
 
   it('funktioniert ohne Zeiten/Material/Fotos (leerer Bericht) und laesst die Material-Vorlagenzeile komplett entfallen', async () => {
@@ -386,6 +419,36 @@ describe('buildReportDocx', () => {
       expect(rows.get(3)?.end).toBeCloseTo(excelTimeFraction('15:45'), 10);
       // Der Pausen-Eintrag darf keine dritte Datenzeile belegt haben.
       expect(rows.has(4)).toBe(false);
+    });
+
+    it('trägt den Monteur-Namen (report.technicianName) in die eigene "Techniker"-Spalte jeder befüllten Zeile ein', async () => {
+      const blob = await build(
+        fakeFullReport({
+          report: fakeReport({ technicianName: 'Daniel Sander' }),
+          timeEntries: [
+            fakeTimeEntry({ id: 't1', date: '2026-10-19', startTime: '08:00', endTime: '16:30' }),
+            fakeTimeEntry({ id: 't2', date: '2026-10-20', startTime: '07:30', endTime: '15:45' })
+          ]
+        })
+      );
+      const zip = await JSZip.loadAsync(await blob.arrayBuffer());
+      const xlsBytes = await zip.file('word/embeddings/Microsoft_Excel_97-2003_Worksheet.xls')!.async('uint8array');
+      const rows = readEmbeddedTimesheetRows(xlsBytes);
+      expect(rows.get(2)?.technician).toBe('Daniel Sander');
+      expect(rows.get(3)?.technician).toBe('Daniel Sander');
+    });
+
+    it('lässt die "Techniker"-Spalte leer, wenn der Bericht keinen Techniker-Namen hat', async () => {
+      const blob = await build(
+        fakeFullReport({
+          report: fakeReport({ technicianName: undefined }),
+          timeEntries: [fakeTimeEntry({ id: 't1', date: '2026-10-19', startTime: '08:00', endTime: '16:30' })]
+        })
+      );
+      const zip = await JSZip.loadAsync(await blob.arrayBuffer());
+      const xlsBytes = await zip.file('word/embeddings/Microsoft_Excel_97-2003_Worksheet.xls')!.async('uint8array');
+      const rows = readEmbeddedTimesheetRows(xlsBytes);
+      expect(rows.get(2)?.technician).toBeUndefined();
     });
 
     it('lässt die eingebettete Arbeitsmappe unverändert, wenn keine (nutzbaren) Zeiteinträge vorhanden sind', async () => {

@@ -46,6 +46,20 @@ describe('reports repository', () => {
     expect(report.notes).toBe('Erstbegehung erfolgt');
   });
 
+  it('speichert Telefonnummer des Ansprechpartners getrennt vom Namen (contactPhone) und lässt sie nachträglich ändern', async () => {
+    const report = await createReport({
+      projectNumber: '2026-002b',
+      contactPerson: 'Frau Beispiel',
+      contactPhone: '0174 8425400'
+    });
+    expect(report.contactPerson).toBe('Frau Beispiel');
+    expect(report.contactPhone).toBe('0174 8425400');
+
+    const updated = await updateReport(report.id, { contactPhone: '089 1234567' });
+    expect(updated?.contactPhone).toBe('089 1234567');
+    expect(updated?.contactPerson).toBe('Frau Beispiel');
+  });
+
   it('speichert geplante Mannstunden beim Anlegen und lässt sie nachträglich ändern (plannedLaborHours)', async () => {
     const report = await createReport({ projectNumber: '2026-003', plannedLaborHours: 16 });
     expect(report.plannedLaborHours).toBe(16);

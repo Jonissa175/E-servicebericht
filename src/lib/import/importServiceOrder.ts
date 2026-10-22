@@ -160,18 +160,14 @@ async function filterAlreadyPresent(
   return materials.filter((material) => !existingDescriptions.has(material.description.trim().toLowerCase()));
 }
 
-async function createNewReport(parsed: ParsedServiceOrder, technicianName?: string): Promise<ServiceReport> {
-  const contactPerson = parsed.contactPerson
-    ? parsed.contactPhone
-      ? `${parsed.contactPerson} (Tel. ${parsed.contactPhone})`
-      : parsed.contactPerson
-    : undefined;
-
+/** Exportiert (statt privat) für einen gezielten Unit-Test der contactPerson/contactPhone-Zuordnung, ohne den vollen PDF-Import-Pfad (extractPdfText) mitzutesten. */
+export async function createNewReport(parsed: ParsedServiceOrder, technicianName?: string): Promise<ServiceReport> {
   return createReport({
     projectNumber: parsed.projectNumber as string,
     projectDescription: parsed.projectDescription,
     customer: parsed.customer,
-    contactPerson,
+    contactPerson: parsed.contactPerson,
+    contactPhone: parsed.contactPhone,
     technicianName,
     notes: buildImportNotes(parsed),
     plannedLaborHours: parsed.plannedLaborHours

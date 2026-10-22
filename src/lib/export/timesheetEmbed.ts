@@ -37,7 +37,11 @@ import { formatDateDE } from '../utils/date';
  * "Tabelle1" hat 15 vorformatierte Dateneingabe-Zeilen (Excel-Zeilen 3-17,
  * 0-indiziert 2-16), jede mit genau einem `MULBLANK`-Record über die
  * Spalten 0-5 (Datum/Techniker/Anfahrt-Fahrzeit/Anfahrt-Km/von/bis - alle
- * leer). Die Spalten 6 ("Stunden") und 7 ("Ü-Std.") sowie 13/14 (versteckte
+ * leer). Spalte 1 ("Techniker") ist laut Kopfzeile der Vorlage eine EIGENE
+ * Spalte PRO Zeiten-Zeile (kein einzelnes Namensfeld für die ganze Tabelle)
+ * - `injectTimeEntries()` trägt dort `report.technicianName` ein (gleicher
+ * Name in jeder befüllten Zeile, da Rivo keinen Zeiteintrag-spezifischen
+ * Monteurnamen kennt). Die Spalten 6 ("Stunden") und 7 ("Ü-Std.") sowie 13/14 (versteckte
  * Zwischenrechnung, Spaltenkopf "NUR BERECHNUNG!") sind FORMEL-Zellen, die
  * "von"/"bis" (Spalte 4/5) als echte Excel-Uhrzeitwerte referenzieren
  * (bestätigt durch Dekodierung der RPN-Tokens: `col13 = F - E`, `col6`
@@ -184,7 +188,7 @@ function toUint8Array(content: ArrayLike<number>): Uint8Array {
 }
 
 /** Patcht die Workbook-BIFF8-Records der übergebenen Rohdaten direkt (keine Neuerzeugung der Arbeitsmappe - nur gezielte Zell-Records innerhalb der 15 Datenzeilen werden ausgetauscht, alles andere bleibt byte-identisch). */
-function patchWorkbookStream(stream: Uint8Array, entries: TimeEntry[]): Uint8Array {
+function patchWorkbookStream(stream: Uint8Array, entries: TimeEntry[], technicianName: string | undefined): Uint8Array {
   const view = new DataView(stream.buffer, stream.byteOffset, stream.byteLength);
   const worksheetBof = findWorksheetBofOffset(stream, view);
   const records = scanRecordsUntilEof(stream, view, worksheetBof);
@@ -214,7 +218,7 @@ function patchWorkbookStream(stream: Uint8Array, entries: TimeEntry[]): Uint8Arr
     const ixfe = [0, 1, 2, 3, 4, 5].map((col) => view.getUint16(record.bodyStart + 4 + col * 2, true));
     const parts = [
       buildLabelRecord(dataRow, 0, ixfe[0], formatDateDE(entry.date)),
-      buildBlankRecord(dataRow, 1, ixfe[1]),
+      technicianName ? buildLabelRecord(dataRow, 1, ixfe[1], technicianName) : buildBlankRecord(dataRow, 1, ixfe[1]),
       buildBlankRecord(dataRow, 2, ixfe[2]),
       buildBlankRecord(dataRow, 3, ixfe[3]),
       buildNumberRecord(dataRow, 4, ixfe[4], startFraction),
@@ -247,8 +251,8 @@ function patchWorkbookStream(stream: Uint8Array, entries: TimeEntry[]): Uint8Arr
   return patched;
 }
 
-/** Siehe Dateikommentar oben - mutiert `zip` direkt. Einträge ohne `startTime`/`endTime` oder mit `isBreak` werden übersprungen, mehr als `MAX_TIME_ENTRIES` werden gekappt (siehe README). */
-export async function injectTimeEntries(zip: PizZip, timeEntries: TimeEntry[]): Promise<void> {
+/** Siehe Dateikommentar oben - mutiert `zip` direkt. Einträge ohne `startTime`/`endTime` oder mit `isBreak` werden übersprungen, mehr als `MAX_TIME_ENTRIES` werden gekappt (siehe README). `technicianName` wird (falls vorhanden) in jede befüllte Zeile eingetragen (siehe Spalten-Kommentar oben). */
+export async function injectTimeEntries(zip: PizZip, timeEntries: TimeEntry[], technicianName: string | undefined): Promise<void> {
   const relevant = timeEntries.filter((entry) => !entry.isBreak && entry.startTime && entry.endTime);
   if (relevant.length === 0) return;
 
@@ -260,7 +264,7 @@ export async function injectTimeEntries(zip: PizZip, timeEntries: TimeEntry[]): 
   const workbookEntry = container.FileIndex.find((entry) => entry.name === 'Workbook');
   if (!workbookEntry) return;
 
-  const patchedStream = patchWorkbookStream(toUint8Array(workbookEntry.content), relevant.slice(0, MAX_TIME_ENTRIES));
+  const patchedStream = patchWorkbookStream(toUint8Array(workbookEntry.content), relevant.slice(0, MAX_TIME_ENTRIES), technicianName);
   workbookEntry.content = patchedStream;
 
   const patchedWorkbookBytes = new Uint8Array(cfb.write(container, { type: 'array' }));

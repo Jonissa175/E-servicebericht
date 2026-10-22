@@ -6,6 +6,7 @@ export interface CreateReportInput {
   projectDescription?: string;
   customer?: string;
   contactPerson?: string;
+  contactPhone?: string;
   technicianName?: string;
   notes?: string;
   plannedLaborHours?: number;
@@ -20,6 +21,7 @@ export async function createReport(input: CreateReportInput): Promise<ServiceRep
     projectDescription: input.projectDescription?.trim() || undefined,
     customer: input.customer?.trim() || undefined,
     contactPerson: input.contactPerson?.trim() || undefined,
+    contactPhone: input.contactPhone?.trim() || undefined,
     technicianName: input.technicianName?.trim() || undefined,
     status: 'open',
     notes: input.notes?.trim() || undefined,
@@ -110,6 +112,7 @@ export type UpdateReportPatch = Partial<
     | 'projectDescription'
     | 'customer'
     | 'contactPerson'
+    | 'contactPhone'
     | 'technicianName'
     | 'status'
     | 'notes'
@@ -123,6 +126,7 @@ export async function updateReport(id: ID, patch: UpdateReportPatch): Promise<Se
     if (patch.projectDescription !== undefined) report.projectDescription = patch.projectDescription.trim() || undefined;
     if (patch.customer !== undefined) report.customer = patch.customer.trim() || undefined;
     if (patch.contactPerson !== undefined) report.contactPerson = patch.contactPerson.trim() || undefined;
+    if (patch.contactPhone !== undefined) report.contactPhone = patch.contactPhone.trim() || undefined;
     if (patch.technicianName !== undefined) report.technicianName = patch.technicianName.trim() || undefined;
     if (patch.status !== undefined) report.status = patch.status;
     if (patch.notes !== undefined) report.notes = patch.notes.trim() || undefined;
