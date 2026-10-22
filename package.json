@@ -27,6 +27,7 @@
     "vitest": "^2.1.5"
   },
   "dependencies": {
+    "cfb": "^1.2.2",
     "docxtemplater": "^3.71.1",
     "idb": "^8.0.0",
     "jsqr": "^1.4.0",

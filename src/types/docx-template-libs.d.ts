@@ -11,6 +11,7 @@ declare module 'pizzip' {
 
   interface PizZipFile {
     asText(): string;
+    asUint8Array(): Uint8Array;
   }
 
   class PizZip {
@@ -27,4 +28,28 @@ declare module 'pizzip' {
 declare module '*.docx' {
   const url: string;
   export default url;
+}
+
+/**
+ * `cfb` (von SheetJS separat veröffentlichtes, schlankes Paket nur für den
+ * OLE2-Compound-File-Container, ohne jede BIFF8/XLSX-Interpretation) liefert
+ * keine eigenen TypeScript-Typen - eigene, schlanke Deklaration nur für die
+ * in timesheetEmbed.ts tatsächlich genutzten Funktionen. Siehe dortigen
+ * Dateikommentar für die Begründung, warum `cfb` statt des vollständigen
+ * `xlsx`-Pakets zum Einsatz kommt.
+ */
+declare module 'cfb' {
+  interface CfbEntry {
+    name: string;
+    /** Je nach Umgebung `Uint8Array`, Node-`Buffer` oder einfaches `Array<number>` - siehe `toUint8Array()` in timesheetEmbed.ts. */
+    content: ArrayLike<number>;
+  }
+  interface CfbContainer {
+    FileIndex: CfbEntry[];
+  }
+  const CFB: {
+    parse(data: Uint8Array): CfbContainer;
+    write(cfb: CfbContainer, options: { type: 'array' }): ArrayLike<number>;
+  };
+  export default CFB;
 }

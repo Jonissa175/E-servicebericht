@@ -4,6 +4,7 @@ import templateUrl from '../../assets/templates/servicebericht-vorlage.docx';
 import type { MaterialItem, Photo, ServiceReport } from '../db/types';
 import { formatDateTimeDE } from '../utils/date';
 import type { FullReport } from './getFullReport';
+import { injectTimeEntries } from './timesheetEmbed';
 
 /**
  * Word-Export auf Basis der offiziellen ELSA-Servicebericht-Vorlage (vom
@@ -65,6 +66,13 @@ import type { FullReport } from './getFullReport';
  * als 10 Fotos im Bericht) behalten bewusst das Platzhalterbild - exakt
  * das Verhalten, das auch beim manuellen Ausfüllen der Vorlage in Word
  * entstünde.
+ *
+ * ZEITEN: Die "Zeiten"-Tabelle in der Vorlage ist kein Word-Tabellenfeld,
+ * sondern ein eingebettetes Excel-97-2003-Arbeitsblatt (OLE-Objekt) - Details
+ * zum Mechanismus, zur Zellzuordnung und zu einer bewusst in Kauf genommenen,
+ * klar zu kommunizierenden Einschränkung (zwischengespeicherte Formel-
+ * Ergebnisse/Vorschaubild werden erst beim Öffnen in echtem Excel aktuell)
+ * siehe Dateikommentar in `timesheetEmbed.ts`.
  *
  * UNTERSCHRIFT: Die Vorlage sieht für die Kunden-Unterschrift nur eine
  * Zeile für den gedruckten Namen vor ("Namen in Druckschrift (Für
@@ -229,6 +237,7 @@ export async function buildReportDocx(data: FullReport, templateBytes?: ArrayBuf
 
   const outZip = doc.getZip();
   await injectPhotos(outZip, data.photos.slice(0, MAX_PHOTOS));
+  await injectTimeEntries(outZip, data.timeEntries);
 
   return outZip.generate({ type: 'blob', mimeType: DOCX_MIME_TYPE });
 }
