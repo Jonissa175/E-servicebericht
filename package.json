@@ -16,6 +16,7 @@
   "devDependencies": {
     "@sveltejs/vite-plugin-svelte": "^5.0.0",
     "@tsconfig/svelte": "^5.0.4",
+    "@types/node": "^26.6.5",
     "fake-indexeddb": "^6.0.0",
     "svelte": "^5.1.0",
     "svelte-check": "^4.0.5",
@@ -26,11 +27,12 @@
     "vitest": "^2.1.5"
   },
   "dependencies": {
-    "docx": "^9.7.1",
+    "docxtemplater": "^3.71.1",
     "idb": "^8.0.0",
     "jsqr": "^1.4.0",
     "jszip": "^3.10.1",
     "pdfjs-dist": "^6.4.299",
+    "pizzip": "^3.3.0",
     "tesseract.js": "^7.0.0"
   }
 }

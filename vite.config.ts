@@ -18,6 +18,11 @@ const basePath = process.env.VITE_BASE_PATH || '/';
 
 export default defineConfig(() => ({
   base: basePath,
+  // .docx wird nicht automatisch wie z.B. .svg als Asset erkannt (siehe
+  // src/lib/export/docxExport.ts - die vorbereitete ELSA-Vorlage wird per
+  // `import templateUrl from '...docx'` als URL eingebunden, nicht als
+  // JS-Modul geparst).
+  assetsInclude: ['**/*.docx'],
   plugins: [
     svelte(),
     useMkcert && mkcert(),

@@ -1,264 +1,236 @@
-import {
-  AlignmentType,
-  BorderStyle,
-  Document,
-  HeadingLevel,
-  ImageRun,
-  Packer,
-  Paragraph,
-  Table,
-  TableCell,
-  TableRow,
-  TextRun,
-  WidthType,
-  type ITableBordersOptions
-} from 'docx';
-import type { ServiceReport } from '../db/types';
-import { formatDateDE, formatDateTimeDE, formatDurationMinutes } from '../utils/date';
+import Docxtemplater from 'docxtemplater';
+import PizZip from 'pizzip';
+import templateUrl from '../../assets/templates/servicebericht-vorlage.docx';
+import type { MaterialItem, Photo, ServiceReport } from '../db/types';
+import { formatDateTimeDE } from '../utils/date';
 import type { FullReport } from './getFullReport';
 
-/** Breite eines eingebetteten Fotos im Dokument, in Pixeln (bei 96dpi ≈ 10,5cm). */
-const PHOTO_MAX_WIDTH_PX = 400;
+/**
+ * Word-Export auf Basis der offiziellen ELSA-Servicebericht-Vorlage (vom
+ * Kunden als .docx geliefert, V2026-05-21) statt eines eigenen,
+ * programmatisch gebauten Layouts (so wie vor diesem Umbau, via der
+ * `docx`-Bibliothek - inzwischen entfernt). Zweck: der exportierte
+ * Bericht soll exakt wie das offizielle Formular aussehen, nur mit den in
+ * Rivo erfassten Daten befüllt - "Formatierung darf sich nicht ändern,
+ * nur die vorhandenen Daten in die dafür vorgesehenen Felder eintragen"
+ * (ausdrücklicher Wunsch des Kunden).
+ *
+ * MECHANISMUS (zweistufig):
+ *
+ * 1) EINMALIGE Vorbereitung (nicht Teil dieses Moduls, nicht zur
+ *    Laufzeit): In der Originaldatei sind die Eingabefelder als
+ *    klassische Word-"Legacy-Formularfelder" (FORMTEXT-Felder, erkennbar
+ *    an `<w:fldChar w:fldCharType="...">`) angelegt - kein Freitext. Ein
+ *    separates Python-Skript hat deren Werte-Runs (zwischen
+ *    `fldCharType="separate"` und `fldCharType="end"`) durch
+ *    docxtemplater-Tags (`{projectNumber}`, `{customer}`, ...) ersetzt -
+ *    dabei wurde NUR der Text-Inhalt des jeweils ersten Platzhalter-Runs
+ *    ausgetauscht, seine `rPr` (Schriftart/-größe/Unterstreichung etc.)
+ *    1:1 übernommen. Dadurch sieht ein eingetragener Wert exakt so aus
+ *    wie vorher die Formularfeld-Markierung - keine einzige
+ *    Formatierungseigenschaft wurde angefasst. Das Ergebnis liegt als
+ *    `src/assets/templates/servicebericht-vorlage.docx` im Projekt.
+ *    Material-Positionen laufen dabei über einen docxtemplater-
+ *    Zeilen-Loop (`{#materials}`/`{/materials}` in der ersten/letzten
+ *    Zelle der einzigen Beispielzeile) - die Zeile wird beim Rendern pro
+ *    Position automatisch dupliziert/entfernt.
+ *
+ * 2) Export zur Laufzeit (dieses Modul): lädt die vorbereitete Vorlage,
+ *    rendert sie mit `docxtemplater` anhand der Berichtsdaten.
+ *
+ * FOTOS - EIGENER WEG, KEIN BILD-MODUL: Jede der 10 nummerierten
+ * Dokumentations-Zeilen (1.-10., harte Obergrenze aus dem
+ * Vorlagen-Layout) hat in der Originaldatei bereits eine eigene, vom
+ * Vorlagen-Autor angelegte Word-"Bild-Inhaltssteuerung" (`<w:sdt>` mit
+ * Platzhalterbild, alle 10 über dieselbe Relationship-ID `rId22`
+ * verknüpft) als dafür vorgesehenen Platz - das ist eleganter als ein
+ * zusätzliches Feld einzufügen. `docxtemplater-image-module-free` (der
+ * einzige gepflegte freie Bild-Modul-Kandidat) erwies sich dabei als
+ * inkompatibel mit aktuellen docxtemplater-Versionen (wirft
+ * `Cannot read properties of undefined (reading 'length')` beim Rendern,
+ * selbst in einem isolierten Minimal-Test - das Modul ist seit Jahren
+ * nicht mehr gepflegt und gegen eine sehr viel ältere docxtemplater-Version
+ * gebaut) und hätte zusätzlich eine stark veraltete, mehrfach kritisch
+ * verwundbare `xmldom`-Abhängigkeit mitgebracht. Deshalb übernimmt
+ * `injectPhotos()` unten das Einfügen von Hand: nach dem reinen
+ * Text-Rendering werden die ersten `photos.length` (max. 10) Vorkommen
+ * von `r:embed="rId22"` in Dokumentreihenfolge (= Zeile 1, 2, 3, ...)
+ * durch eine neue, pro Foto eigene Relationship ersetzt (inkl. Foto-Datei
+ * in `word/media/`, Eintrag in `word/_rels/document.xml.rels` und bei
+ * Bedarf einer neuen `Default Extension` in `[Content_Types].xml`) -
+ * sowie Breite/Höhe des zugehörigen `<w:drawing>`-Blocks proportional an
+ * die tatsächliche Fotogröße angepasst (begrenzt auf die ursprüngliche
+ * Platzhalter-Boxgröße, s. PHOTO_BOX_MAX_PX, damit sich die Zeilenhöhe
+ * der Tabelle nicht unerwartet ändert). Nicht befüllte Zeilen (weniger
+ * als 10 Fotos im Bericht) behalten bewusst das Platzhalterbild - exakt
+ * das Verhalten, das auch beim manuellen Ausfüllen der Vorlage in Word
+ * entstünde.
+ *
+ * UNTERSCHRIFT: Die Vorlage sieht für die Kunden-Unterschrift nur eine
+ * Zeile für den gedruckten Namen vor ("Namen in Druckschrift (Für
+ * Unterschrift)"), keinen Platz für ein Bild - deshalb wird hier bewusst
+ * NUR `signedByName` eingetragen, die tatsächliche Unterschrift-Grafik
+ * vom Unterschriften-Pad erscheint in diesem Export nicht (ausdrücklich
+ * so vom Kunden bestätigt, um das Vorlagen-Layout nicht zu verändern).
+ *
+ * NICHT BEFÜLLTE FELDER: Mangels entsprechender Daten in Rivo bleiben
+ * u.a. Bericht-Nr., Objektadresse/Einsatzort, Telefonnummer, E-Mail,
+ * Bestellnummer/AB, Ort/Datum (für Fußzeile), Mehrungen, Festgestellte
+ * Mängel, Angebot benötigt für, Interner Bericht/Bemerkungen, die
+ * "Lager (L)/Bestellung (B)"-Spalte der Materialtabelle sowie die
+ * Statusfelder (Anlagenstatus, Auftrag, Sicherheitseinrichtungen,
+ * Übernachtung(en), Hotelkosten, Folgeeinsatz) unangetastet leer -
+ * ausdrücklicher Kundenwunsch ("trage lediglich die vorhandenen Daten in
+ * die dafür vorgesehenen Spalten ein").
+ */
 
-// Farbpalette angelehnt an das PWA-Theme (theme_color #2563eb in vite.config.ts).
-const ACCENT = '2563EB';
-const ACCENT_TINT = 'EFF6FF';
-const ZEBRA_FILL = 'F6F7F9';
-const BORDER_COLOR = 'DDE2EE';
-const TEXT_MUTED = '5B6478';
+const DOCX_MIME_TYPE = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
 
-const TABLE_BORDERS: ITableBordersOptions = {
-  top: { style: BorderStyle.SINGLE, size: 4, color: BORDER_COLOR },
-  bottom: { style: BorderStyle.SINGLE, size: 4, color: BORDER_COLOR },
-  left: { style: BorderStyle.SINGLE, size: 4, color: BORDER_COLOR },
-  right: { style: BorderStyle.SINGLE, size: 4, color: BORDER_COLOR },
-  insideHorizontal: { style: BorderStyle.SINGLE, size: 2, color: BORDER_COLOR },
-  insideVertical: { style: BorderStyle.SINGLE, size: 2, color: BORDER_COLOR }
+/** Harte Obergrenze aus dem Vorlagen-Layout: genau 10 nummerierte Dokumentations-Zeilen (1.-10.), nicht änderbar ohne das Layout selbst zu verändern. */
+const MAX_PHOTOS = 10;
+
+/** Breite/Höhe der ursprünglichen Platzhalter-Bildbox in der Vorlage (1524000 EMU ÷ 9525 = 160px bei 96dpi) - als Obergrenze für eigene Fotos übernommen. */
+const PHOTO_BOX_MAX_PX = 160;
+const EMU_PER_PX = 9525;
+
+/** Relationship-ID des in der Vorlage 10-fach wiederverwendeten Platzhalterbilds (siehe Dateikommentar oben). */
+const PLACEHOLDER_REL_ID = 'rId22';
+
+function materialRowData(item: MaterialItem): { articleNumber: string; description: string; quantityUnit: string } {
+  return {
+    articleNumber: item.articleNumber ?? '',
+    description: item.description,
+    quantityUnit: `${item.quantity} ${item.unit}`
+  };
+}
+
+function buildTemplateData(data: FullReport): Record<string, unknown> {
+  const { report, materialItems, photos } = data;
+  const templateData: Record<string, unknown> = {
+    projectNumber: report.projectNumber,
+    customer: report.customer ?? '',
+    technicianName: report.technicianName ?? '',
+    // Dieselbe Angabe wie `technicianName` - die Vorlage hat sowohl bei
+    // "Berichtersteller" (Kopfdaten) als auch bei "Techniker"
+    // (Unterschriftenzeile) ein eigenes Feld für denselben Namen.
+    technicianNameSignature: report.technicianName ?? '',
+    contactPerson: report.contactPerson ?? '',
+    projectDescription: report.projectDescription ?? '',
+    notes: report.notes ?? '',
+    signedByName: report.signedByName ?? '',
+    materials: materialItems.map(materialRowData)
+  };
+  for (let i = 0; i < MAX_PHOTOS; i++) {
+    const photo = photos[i];
+    templateData[`photo${i}Desc`] = photo ? formatDateTimeDE(photo.takenAt) : '';
+  }
+  return templateData;
+}
+
+const EXTENSION_BY_MIME_TYPE: Record<string, string> = {
+  'image/jpeg': 'jpeg',
+  'image/jpg': 'jpeg',
+  'image/png': 'png',
+  'image/webp': 'webp',
+  'image/gif': 'gif'
 };
 
-function heading(text: string): Paragraph {
-  return new Paragraph({ text, heading: HeadingLevel.HEADING_2 });
+function extensionForMimeType(mimeType: string): string {
+  return EXTENSION_BY_MIME_TYPE[mimeType] ?? 'jpeg';
 }
 
-function cell(text: string, options: { width: number; bold?: boolean; color?: string; fill?: string } = { width: 25 }): TableCell {
-  return new TableCell({
-    width: { size: options.width, type: WidthType.PERCENTAGE },
-    shading: options.fill ? { fill: options.fill } : undefined,
-    margins: { top: 80, bottom: 80, left: 120, right: 120 },
-    children: [new Paragraph({ children: [new TextRun({ text, bold: options.bold, color: options.color })] })]
-  });
+/** Fügt bei Bedarf eine neue `Default Extension`-Deklaration hinzu - die Vorlage deckt bereits jpeg/png ab (dort bereits für andere eingebettete Bilder genutzt), nicht aber z.B. webp. */
+function ensureContentType(contentTypesXml: string, extension: string, mimeType: string): string {
+  if (new RegExp(`Extension="${extension}"`).test(contentTypesXml)) return contentTypesXml;
+  return contentTypesXml.replace('</Types>', `<Default Extension="${extension}" ContentType="${mimeType}"/></Types>`);
 }
 
-function keyValueRow(label: string, value: string): TableRow {
-  return new TableRow({
-    children: [
-      cell(label, { width: 30, bold: true, color: ACCENT, fill: ACCENT_TINT }),
-      cell(value, { width: 70 })
-    ]
-  });
+/** Skaliert ein Foto proportional auf die Platzhalter-Bildbox (siehe PHOTO_BOX_MAX_PX) - ohne bekannte Originalgröße (sollte nicht vorkommen, defensiv) ein Quadrat als Fallback. */
+function fitPhotoBox(width: number | undefined, height: number | undefined): { widthPx: number; heightPx: number } {
+  if (!width || !height) return { widthPx: PHOTO_BOX_MAX_PX, heightPx: PHOTO_BOX_MAX_PX };
+  if (width <= PHOTO_BOX_MAX_PX && height <= PHOTO_BOX_MAX_PX) return { widthPx: width, heightPx: height };
+  const scale = PHOTO_BOX_MAX_PX / Math.max(width, height);
+  return { widthPx: Math.round(width * scale), heightPx: Math.round(height * scale) };
 }
 
-function headerRow(labels: string[]): TableRow {
-  const width = 100 / labels.length;
-  return new TableRow({
-    children: labels.map((label) => cell(label, { width, bold: true, color: 'FFFFFF', fill: ACCENT }))
-  });
-}
+/** Siehe Dateikommentar oben ("FOTOS - EIGENER WEG, KEIN BILD-MODUL") - mutiert `zip` direkt. */
+async function injectPhotos(zip: PizZip, photos: Photo[]): Promise<void> {
+  if (photos.length === 0) return;
 
-function dataRow(values: string[], options: { bold?: boolean; zebra?: boolean } = {}): TableRow {
-  const width = 100 / values.length;
-  return new TableRow({
-    children: values.map((value) =>
-      cell(value, { width, bold: options.bold, fill: options.zebra ? ZEBRA_FILL : undefined })
-    )
-  });
-}
+  const documentFile = zip.file('word/document.xml');
+  const relsFile = zip.file('word/_rels/document.xml.rels');
+  const contentTypesFile = zip.file('[Content_Types].xml');
+  if (!documentFile || !relsFile || !contentTypesFile) return; // sollte bei dieser Vorlage nie vorkommen, rein defensiv
 
-function buildHeaderSection(report: ServiceReport): (Paragraph | Table)[] {
-  const children: (Paragraph | Table)[] = [
-    new Paragraph({ text: 'Servicebericht', heading: HeadingLevel.TITLE }),
-    new Paragraph({ text: `Projektnummer: ${report.projectNumber}`, alignment: AlignmentType.LEFT })
-  ];
+  let documentXml = documentFile.asText();
+  let relsXml = relsFile.asText();
+  let contentTypesXml = contentTypesFile.asText();
 
-  if (report.projectDescription) {
-    children.push(
-      new Paragraph({
-        children: [new TextRun({ text: report.projectDescription, italics: true, color: TEXT_MUTED })],
-        spacing: { after: 120 }
-      })
+  const embedPattern = new RegExp(`r:embed="${PLACEHOLDER_REL_ID}"`, 'g');
+  const positions: number[] = [];
+  let match: RegExpExecArray | null;
+  while ((match = embedPattern.exec(documentXml))) positions.push(match.index);
+
+  const count = Math.min(photos.length, positions.length, MAX_PHOTOS);
+
+  // In ABSTEIGENDER Zeilen-Reihenfolge ersetzen: jede Ersetzung ändert die
+  // Textlänge, vorab ermittelte `positions` für noch nicht bearbeitete
+  // (weiter vorne liegende) Zeilen bleiben so gültig.
+  for (let i = count - 1; i >= 0; i--) {
+    const photo = photos[i];
+    const pos = positions[i];
+    const extension = extensionForMimeType(photo.mimeType);
+    const relId = `rIdPhoto${i}`;
+    const mediaName = `photo${i}.${extension}`;
+    const bytes = new Uint8Array(await photo.thumbnailBlob.arrayBuffer());
+
+    zip.file(`word/media/${mediaName}`, bytes, { binary: true });
+    relsXml = relsXml.replace(
+      '</Relationships>',
+      `<Relationship Id="${relId}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="media/${mediaName}"/></Relationships>`
     );
+    contentTypesXml = ensureContentType(contentTypesXml, extension, photo.mimeType);
+
+    documentXml =
+      documentXml.slice(0, pos) + documentXml.slice(pos).replace(`r:embed="${PLACEHOLDER_REL_ID}"`, `r:embed="${relId}"`);
+
+    const drawingStart = documentXml.lastIndexOf('<w:drawing>', pos);
+    const drawingEnd = documentXml.indexOf('</w:drawing>', pos) + '</w:drawing>'.length;
+    const { widthPx, heightPx } = fitPhotoBox(photo.width, photo.height);
+    const cx = widthPx * EMU_PER_PX;
+    const cy = heightPx * EMU_PER_PX;
+    let drawingBlock = documentXml.slice(drawingStart, drawingEnd);
+    drawingBlock = drawingBlock.replace(/<wp:extent cx="\d+" cy="\d+"\/>/, `<wp:extent cx="${cx}" cy="${cy}"/>`);
+    drawingBlock = drawingBlock.replace(/<a:ext cx="\d+" cy="\d+"\/>/, `<a:ext cx="${cx}" cy="${cy}"/>`);
+    documentXml = documentXml.slice(0, drawingStart) + drawingBlock + documentXml.slice(drawingEnd);
   }
 
-  children.push(new Paragraph({ thematicBreak: true }));
-
-  const rows = [
-    keyValueRow('Kunde', report.customer || '–'),
-    keyValueRow('Ansprechpartner', report.contactPerson || '–'),
-    keyValueRow('Techniker', report.technicianName || '–'),
-    keyValueRow('Status', report.status === 'completed' ? 'Abgeschlossen' : 'Offen'),
-    keyValueRow('Erstellt am', formatDateTimeDE(report.createdAt)),
-    keyValueRow('Stand', formatDateTimeDE(report.updatedAt))
-  ];
-  children.push(new Table({ width: { size: 100, type: WidthType.PERCENTAGE }, borders: TABLE_BORDERS, rows }));
-
-  return children;
+  zip.file('word/document.xml', documentXml);
+  zip.file('word/_rels/document.xml.rels', relsXml);
+  zip.file('[Content_Types].xml', contentTypesXml);
 }
 
-function buildTimeEntriesSection(data: FullReport): (Paragraph | Table)[] {
-  const { timeEntries, report } = data;
-  if (timeEntries.length === 0) {
-    return [heading('Zeiten'), new Paragraph({ text: 'Keine Zeiten erfasst.' })];
-  }
+/**
+ * Baut den Servicebericht als Word-Dokument aus der offiziellen ELSA-Vorlage.
+ * Rein clientseitig, keine DB-/DOM-Zugriffe.
+ *
+ * `templateBytes` ist ausschließlich für Tests gedacht (Vitest läuft ohne
+ * Dev-Server in einer Node-Umgebung, wo `fetch()` die von Vite verarbeitete,
+ * relative Asset-URL nicht auflösen kann) - dort wird die Vorlagendatei
+ * stattdessen direkt von der Festplatte gelesen und hier eingespeist, um
+ * echte Render-Logik statt eines Mocks zu testen. Im normalen Betrieb
+ * (Browser) bleibt der Parameter immer weg, dann greift der echte `fetch()`.
+ */
+export async function buildReportDocx(data: FullReport, templateBytes?: ArrayBuffer): Promise<Blob> {
+  const templateBuffer: ArrayBuffer = templateBytes ?? (await fetch(templateUrl).then((res) => res.arrayBuffer()));
+  const zip = new PizZip(templateBuffer);
+  const doc = new Docxtemplater(zip, { paragraphLoop: true, linebreaks: true });
+  await doc.renderAsync(buildTemplateData(data));
 
-  const rows = [
-    headerRow(['Datum', 'Start', 'Ende', 'Dauer', 'Notiz']),
-    ...timeEntries.map((entry, index) =>
-      dataRow(
-        [
-          formatDateDE(entry.date),
-          entry.startTime ?? '–',
-          entry.endTime ?? '–',
-          formatDurationMinutes(entry.durationMinutes),
-          entry.note ?? ''
-        ],
-        { zebra: index % 2 === 1 }
-      )
-    ),
-    dataRow(['', '', '', formatDurationMinutes(report.totalDurationMinutes), 'Gesamt'], { bold: true })
-  ];
+  const outZip = doc.getZip();
+  await injectPhotos(outZip, data.photos.slice(0, MAX_PHOTOS));
 
-  return [heading('Zeiten'), new Table({ width: { size: 100, type: WidthType.PERCENTAGE }, borders: TABLE_BORDERS, rows })];
-}
-
-function buildMaterialSection(data: FullReport): (Paragraph | Table)[] {
-  const { materialItems } = data;
-  if (materialItems.length === 0) {
-    return [heading('Material'), new Paragraph({ text: 'Kein Material erfasst.' })];
-  }
-
-  // Die "Geplant"-Spalte nur anzeigen, wenn mindestens eine Position eine
-  // geplante Menge trägt (siehe MaterialItem.plannedQuantity - nur bei aus
-  // einem Serviceauftrag importierten Positionen gesetzt) - für ganz normal
-  // manuell erfasste Berichte bleibt die Tabelle unverändert wie bisher.
-  const hasPlanned = materialItems.some((item) => item.plannedQuantity !== undefined);
-  const headers = hasPlanned
-    ? ['Bezeichnung', 'Geplant', 'Verbaut', 'Einheit', 'Artikelnummer']
-    : ['Bezeichnung', 'Menge', 'Einheit', 'Artikelnummer'];
-
-  const rows = [
-    headerRow(headers),
-    ...materialItems.map((item, index) =>
-      dataRow(
-        hasPlanned
-          ? [
-              item.description,
-              item.plannedQuantity !== undefined ? String(item.plannedQuantity) : '–',
-              String(item.quantity),
-              item.unit,
-              item.articleNumber ?? '–'
-            ]
-          : [item.description, String(item.quantity), item.unit, item.articleNumber ?? '–'],
-        { zebra: index % 2 === 1 }
-      )
-    )
-  ];
-
-  return [heading('Material'), new Table({ width: { size: 100, type: WidthType.PERCENTAGE }, borders: TABLE_BORDERS, rows })];
-}
-
-function buildNotesSection(data: FullReport): Paragraph[] {
-  const notes = data.report.notes?.trim();
-  if (!notes) return [];
-  return [heading('Notizen'), ...notes.split('\n').map((line) => new Paragraph({ text: line }))];
-}
-
-async function buildPhotosSection(data: FullReport): Promise<(Paragraph | Table)[]> {
-  const { photos } = data;
-  if (photos.length === 0) return [];
-
-  const children: (Paragraph | Table)[] = [heading('Fotos')];
-  for (const photo of photos) {
-    const buffer = await photo.thumbnailBlob.arrayBuffer();
-    const width = photo.width && photo.height ? Math.min(PHOTO_MAX_WIDTH_PX, photo.width) : PHOTO_MAX_WIDTH_PX;
-    const height =
-      photo.width && photo.height ? Math.round((width / photo.width) * photo.height) : Math.round(width * 0.75);
-
-    children.push(
-      new Paragraph({
-        children: [
-          new ImageRun({
-            type: 'jpg',
-            data: buffer,
-            transformation: { width, height }
-          })
-        ],
-        spacing: { before: 120 }
-      }),
-      new Paragraph({
-        children: [new TextRun({ text: formatDateTimeDE(photo.takenAt), color: TEXT_MUTED, size: 18 })],
-        spacing: { after: 160 }
-      })
-    );
-  }
-  return children;
-}
-
-/** Breite der eingebetteten Unterschrift, in Pixeln - Unterschriften sind i.d.R. eher schmal/quer. */
-const SIGNATURE_MAX_WIDTH_PX = 320;
-
-async function buildSignatureSection(data: FullReport): Promise<(Paragraph | Table)[]> {
-  const { signatureBlob, signatureWidth, signatureHeight, signedByName, signedAt } = data.report;
-  if (!signatureBlob) return [];
-
-  const buffer = await signatureBlob.arrayBuffer();
-  const width = signatureWidth && signatureHeight ? Math.min(SIGNATURE_MAX_WIDTH_PX, signatureWidth) : SIGNATURE_MAX_WIDTH_PX;
-  const height =
-    signatureWidth && signatureHeight
-      ? Math.round((width / signatureWidth) * signatureHeight)
-      : Math.round(width * 0.4);
-
-  const caption = [signedByName ? `Unterschrieben von ${signedByName}` : 'Unterschrieben', signedAt ? `am ${formatDateTimeDE(signedAt)}` : '']
-    .filter(Boolean)
-    .join(' ');
-
-  return [
-    heading('Unterschrift'),
-    new Paragraph({
-      children: [new ImageRun({ type: 'png', data: buffer, transformation: { width, height } })],
-      spacing: { before: 120 }
-    }),
-    new Paragraph({ children: [new TextRun({ text: caption, color: TEXT_MUTED, size: 18 })], spacing: { after: 160 } })
-  ];
-}
-
-/** Baut ein editierbares Word-Dokument aus einem vollständigen Bericht. Rein clientseitig, keine DB-/DOM-Zugriffe. */
-export async function buildReportDocx(data: FullReport): Promise<Blob> {
-  const children: (Paragraph | Table)[] = [
-    ...buildHeaderSection(data.report),
-    ...buildTimeEntriesSection(data),
-    ...buildMaterialSection(data),
-    ...buildNotesSection(data),
-    ...(await buildPhotosSection(data)),
-    ...(await buildSignatureSection(data))
-  ];
-
-  const doc = new Document({
-    styles: {
-      default: {
-        document: { run: { font: 'Calibri', size: 22 } },
-        title: {
-          run: { color: ACCENT, bold: true, size: 40, font: 'Calibri' },
-          paragraph: { spacing: { after: 60 } }
-        },
-        heading2: {
-          run: { color: ACCENT, bold: true, size: 26, font: 'Calibri' },
-          paragraph: { spacing: { before: 280, after: 140 } }
-        }
-      }
-    },
-    sections: [{ children }]
-  });
-  return Packer.toBlob(doc);
+  return outZip.generate({ type: 'blob', mimeType: DOCX_MIME_TYPE });
 }
 
 /** Dateiname-Vorschlag für den Download, z.B. "Servicebericht-2026-0142.docx". */
