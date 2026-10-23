@@ -11,6 +11,8 @@ export interface MaterialItemInput {
   articleNumber?: string;
   /** Siehe MaterialItem.plannedQuantity - nur beim Anlegen aus einem importierten Serviceauftrag gesetzt. */
   plannedQuantity?: number;
+  /** Siehe MaterialItem.source. */
+  source?: MaterialItem['source'];
 }
 
 /** Materialpositionen eines Berichts, in Erfassungsreihenfolge. */
@@ -31,6 +33,7 @@ export async function addMaterialItem(reportId: ID, input: MaterialItemInput): P
     unit: input.unit.trim(),
     articleNumber: input.articleNumber?.trim() || undefined,
     plannedQuantity: input.plannedQuantity,
+    source: input.source,
     createdAt: now,
     updatedAt: now
   };

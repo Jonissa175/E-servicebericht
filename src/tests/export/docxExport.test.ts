@@ -305,6 +305,41 @@ describe('buildReportDocx', () => {
     expect(xml).toContain('1 Stk');
   });
 
+  it('befüllt die "Lager (L) / Bestellung (B)"-Spalte pro Position korrekt (L, B, leer bei nicht gewählt)', async () => {
+    const blob = await build(
+      fakeFullReport({
+        materialItems: [
+          fakeMaterialItem({ id: 'm1', description: 'XSicherungX', quantity: 1, unit: 'Stk', source: 'lager' }),
+          fakeMaterialItem({ id: 'm2', description: 'XZaehlerschrankX', quantity: 1, unit: 'Stk', source: 'bestellung' }),
+          fakeMaterialItem({ id: 'm3', description: 'XOhneAuswahlX', quantity: 1, unit: 'Stk', source: undefined })
+        ]
+      })
+    );
+    const xml = await documentXmlOf(blob);
+    // Jede Materialzeile beginnt mit der "Lager (L)/Bestellung (B)"-Spalte
+    // (siehe Dateikommentar in docxExport.ts: {source}{#materials} im
+    // selben Run) und endet mit der Beschreibung - die L/B-Markierung muss
+    // deshalb VOR der jeweils zugehörigen Beschreibung stehen, aber erst
+    // NACH der Beschreibung der vorherigen Zeile (sonst wäre sie der
+    // falschen Position zugeordnet).
+    const lRun = '<w:t xml:space="preserve">L</w:t>';
+    const bRun = '<w:t xml:space="preserve">B</w:t>';
+    const lIdx = xml.indexOf(lRun);
+    const bIdx = xml.indexOf(bRun);
+    const sicherungIdx = xml.indexOf('XSicherungX');
+    const zaehlerschrankIdx = xml.indexOf('XZaehlerschrankX');
+    const ohneAuswahlIdx = xml.indexOf('XOhneAuswahlX');
+
+    expect(lIdx).toBeGreaterThan(-1);
+    expect(lIdx).toBeLessThan(sicherungIdx);
+    expect(bIdx).toBeGreaterThan(sicherungIdx);
+    expect(bIdx).toBeLessThan(zaehlerschrankIdx);
+    // Nach der zweiten Beschreibung darf kein weiteres L/B mehr auftauchen
+    // (dritte Position hat bewusst keine Auswahl getroffen).
+    expect(xml.slice(zaehlerschrankIdx, ohneAuswahlIdx)).not.toContain(lRun);
+    expect(xml.slice(zaehlerschrankIdx, ohneAuswahlIdx)).not.toContain(bRun);
+  });
+
   it('funktioniert ohne Kurzbeschreibung/Ansprechpartner', async () => {
     const blob = await build(
       fakeFullReport({ report: fakeReport({ projectDescription: undefined, contactPerson: undefined }) })

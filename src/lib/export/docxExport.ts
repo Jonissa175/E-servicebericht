@@ -34,7 +34,12 @@ import { injectTimeEntries } from './timesheetEmbed';
  *    Material-Positionen laufen dabei über einen docxtemplater-
  *    Zeilen-Loop (`{#materials}`/`{/materials}` in der ersten/letzten
  *    Zelle der einzigen Beispielzeile) - die Zeile wird beim Rendern pro
- *    Position automatisch dupliziert/entfernt.
+ *    Position automatisch dupliziert/entfernt. Die ERSTE Zelle dient
+ *    gleichzeitig als "Lager (L) / Bestellung (B)"-Spalte - ihr einziger
+ *    Werte-Run enthält `{source}{#materials}` (Wert-Tag direkt vor dem
+ *    Loop-Start-Tag im selben Run, exakt wie bei `{quantityUnit}{/materials}`
+ *    in der letzten Zelle), da diese Spalte sonst keinen eigenen Platz für
+ *    den Loop-Marker gehabt hätte.
  *
  * 2) Export zur Laufzeit (dieses Modul): lädt die vorbereitete Vorlage,
  *    rendert sie mit `docxtemplater` anhand der Berichtsdaten.
@@ -122,7 +127,6 @@ import { injectTimeEntries } from './timesheetEmbed';
  * u.a. Bericht-Nr., Objektadresse/Einsatzort, E-Mail,
  * Bestellnummer/AB, Mehrungen, Festgestellte
  * Mängel, Angebot benötigt für, die
- * "Lager (L)/Bestellung (B)"-Spalte der Materialtabelle sowie die
  * Statusfelder (Anlagenstatus, Auftrag, Sicherheitseinrichtungen,
  * Übernachtung(en), Hotelkosten, Folgeeinsatz) unangetastet leer -
  * ausdrücklicher Kundenwunsch ("trage lediglich die vorhandenen Daten in
@@ -141,11 +145,19 @@ const EMU_PER_PX = 9525;
 /** Relationship-ID des in der Vorlage 10-fach wiederverwendeten Platzhalterbilds (siehe Dateikommentar oben). */
 const PLACEHOLDER_REL_ID = 'rId22';
 
-function materialRowData(item: MaterialItem): { articleNumber: string; description: string; quantityUnit: string } {
+/** "L"/"B" - exakt die Buchstaben, die die Vorlage selbst als Spaltenbezeichnung ("Lager (L) / Bestellung (B)") nutzt; leer wenn nicht gesetzt. */
+function materialSourceLetter(item: MaterialItem): string {
+  if (item.source === 'lager') return 'L';
+  if (item.source === 'bestellung') return 'B';
+  return '';
+}
+
+function materialRowData(item: MaterialItem): { articleNumber: string; description: string; quantityUnit: string; source: string } {
   return {
     articleNumber: item.articleNumber ?? '',
     description: item.description,
-    quantityUnit: `${item.quantity} ${item.unit}`
+    quantityUnit: `${item.quantity} ${item.unit}`,
+    source: materialSourceLetter(item)
   };
 }
 

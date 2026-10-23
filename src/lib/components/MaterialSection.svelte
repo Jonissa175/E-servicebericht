@@ -34,6 +34,10 @@
   // selbst als "nicht gesetzt" durchginge.
   let formPlannedQuantity = $state('');
   let formHasPlannedQuantity = $state(false);
+  // Optional - Lager (L) oder Bestellung (B), siehe MaterialItem.source. Kann
+  // auch undefined bleiben (nicht erzwungen); erneutes Antippen des bereits
+  // gewählten Buttons deselektiert ihn wieder (siehe toggleSource()).
+  let formSource = $state<MaterialItem['source']>(undefined);
 
   let scannerOpen = $state(false);
   // Rohtext des zuletzt gescannten Codes, solange das Formular dadurch
@@ -64,6 +68,7 @@
     formArticleNumber = '';
     formPlannedQuantity = '';
     formHasPlannedQuantity = false;
+    formSource = undefined;
     editingId = undefined;
     showForm = false;
     unitTouched = false;
@@ -83,6 +88,7 @@
     formArticleNumber = item.articleNumber ?? '';
     formPlannedQuantity = item.plannedQuantity !== undefined ? String(item.plannedQuantity) : '';
     formHasPlannedQuantity = item.plannedQuantity !== undefined;
+    formSource = item.source;
     unitTouched = true; // Einheit eines bestehenden Eintrags nicht durch Katalog-Match überschreiben.
     lastScanRaw = undefined;
     showForm = true;
@@ -142,6 +148,11 @@
     unitTouched = true;
   }
 
+  /** Antippen der bereits gewählten Option deselektiert sie wieder - das Feld ist bewusst optional, nicht erzwungen. */
+  function toggleSource(value: NonNullable<MaterialItem['source']>): void {
+    formSource = formSource === value ? undefined : value;
+  }
+
   async function save(): Promise<void> {
     const description = formDescription.trim();
     const quantity = Number(formQuantity.replace(',', '.'));
@@ -155,7 +166,8 @@
       quantity,
       unit: formUnit.trim() || 'Stk',
       articleNumber: formArticleNumber,
-      plannedQuantity: plannedQuantity !== undefined && Number.isFinite(plannedQuantity) ? plannedQuantity : undefined
+      plannedQuantity: plannedQuantity !== undefined && Number.isFinite(plannedQuantity) ? plannedQuantity : undefined,
+      source: formSource
     };
     if (editingId) {
       await updateMaterialItem(editingId, payload);
@@ -175,11 +187,13 @@
     onChanged();
   }
 
-  /** "4 Stk · geplant 5 Stk · Art.-Nr. ..." - die geplante Menge (falls per Serviceauftrag-Import gesetzt) nur zum Abgleich, keine eigene Validierung. */
+  /** "4 Stk · geplant 5 Stk · Art.-Nr. ... · L" - die geplante Menge (falls per Serviceauftrag-Import gesetzt) nur zum Abgleich, keine eigene Validierung. */
   function formatMeta(item: MaterialItem): string {
     const parts = [`${item.quantity} ${item.unit}`];
     if (item.plannedQuantity !== undefined) parts.push(`geplant ${item.plannedQuantity} ${item.unit}`);
     if (item.articleNumber) parts.push(`Art.-Nr. ${item.articleNumber}`);
+    if (item.source === 'lager') parts.push('L');
+    if (item.source === 'bestellung') parts.push('Bestellt');
     return parts.join(' · ');
   }
 </script>
@@ -289,6 +303,17 @@
       Artikelnummer (optional)
       <input type="text" bind:value={formArticleNumber} />
     </label>
+    <div class="source-field">
+      <span class="source-label">Lager / Bestellung (optional)</span>
+      <div class="source-toggle">
+        <button type="button" class:active={formSource === 'lager'} onclick={() => toggleSource('lager')}>
+          L · Lager
+        </button>
+        <button type="button" class:active={formSource === 'bestellung'} onclick={() => toggleSource('bestellung')}>
+          B · Bestellt
+        </button>
+      </div>
+    </div>
     {#if lastScanRaw}
       <p class="scan-hint">
         {#if formDescription}
@@ -443,6 +468,39 @@
     display: grid;
     grid-template-columns: 1fr 1fr;
     gap: var(--space-3);
+  }
+
+  .source-field {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-1);
+  }
+
+  .source-label {
+    font-size: 0.85rem;
+    color: var(--color-text-muted);
+  }
+
+  .source-toggle {
+    display: flex;
+    gap: var(--space-2);
+  }
+
+  .source-toggle button {
+    flex: 1;
+    background: var(--color-surface);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-sm);
+    padding: var(--space-2);
+    min-height: auto;
+    font-weight: 600;
+    color: var(--color-text-muted);
+  }
+
+  .source-toggle button.active {
+    background: var(--color-primary);
+    border-color: var(--color-primary);
+    color: var(--color-primary-contrast);
   }
 
   .form-actions {

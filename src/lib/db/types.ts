@@ -195,6 +195,14 @@ export interface MaterialItem {
    * Positionen - manuell angelegte Positionen haben kein "Soll".
    */
   plannedQuantity?: number;
+  /**
+   * Kommt diese Position aus dem Lager oder wird sie bestellt? Optional -
+   * manuell angelegte Altpositionen (von vor Einführung dieses Felds) haben
+   * keinen Wert. Füllt im Word-Export die Spalte "Lager (L) / Bestellung
+   * (B)" der Materialtabelle mit genau dem Buchstaben, den die Vorlage
+   * selbst als Spaltenbezeichnung nutzt.
+   */
+  source?: 'lager' | 'bestellung';
   createdAt: ISODateTime;
   updatedAt: ISODateTime;
 }
