@@ -63,6 +63,26 @@ describe('timeEntries repository', () => {
     expect(updatedReport?.totalDurationMinutes).toBe(120);
   });
 
+  it('timeEntryCount zählt unterschiedliche Kalendertage, nicht die Anzahl der Zeiteintrags-Datensätze (mehrfaches Ein-/Ausstempeln am selben Tag erhöht die "Tage"-Anzeige nicht mehrfach)', async () => {
+    const report = await createReport({ projectNumber: '1' });
+    // Zwei getrennte Einträge am selben Tag (z.B. vormittags/nachmittags).
+    await addTimeEntry(report.id, { date: '2026-08-10', startTime: '08:00', endTime: '12:00' });
+    await addTimeEntry(report.id, { date: '2026-08-10', startTime: '13:00', endTime: '17:00' });
+
+    let updatedReport = await getReport(report.id);
+    expect(updatedReport?.timeEntryCount).toBe(1);
+
+    // Ein weiterer Eintrag an einem ANDEREN Tag erhöht die Anzahl korrekt.
+    await addTimeEntry(report.id, { date: '2026-08-11', startTime: '08:00', endTime: '10:00' });
+    updatedReport = await getReport(report.id);
+    expect(updatedReport?.timeEntryCount).toBe(2);
+
+    // Ein dritter Eintrag am ERSTEN Tag ändert die Anzahl weiterhin nicht.
+    await addTimeEntry(report.id, { date: '2026-08-10', startTime: '18:00', endTime: '19:00' });
+    updatedReport = await getReport(report.id);
+    expect(updatedReport?.timeEntryCount).toBe(2);
+  });
+
   it('listet Zeiteinträge sortiert nach Datum', async () => {
     const report = await createReport({ projectNumber: '1' });
     await addTimeEntry(report.id, { date: '2026-08-12', startTime: '08:00', endTime: '10:00' });

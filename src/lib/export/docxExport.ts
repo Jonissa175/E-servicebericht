@@ -2,6 +2,7 @@ import Docxtemplater from 'docxtemplater';
 import PizZip from 'pizzip';
 import templateUrl from '../../assets/templates/servicebericht-vorlage.docx';
 import type { MaterialItem, Photo, ServiceReport } from '../db/types';
+import { splitContactPersonAndPhone } from '../utils/contactPerson';
 import { formatDateDE, todayISODate } from '../utils/date';
 import type { FullReport } from './getFullReport';
 import { injectTimeEntries } from './timesheetEmbed';
@@ -50,8 +51,10 @@ import { injectTimeEntries } from './timesheetEmbed';
  * `ServiceReport` (`contactPerson`/`contactPhone`). Ältere, vor Einführung
  * von `contactPhone` angelegte Berichte haben die Telefonnummer noch ins
  * `contactPerson`-Textfeld gemergt ("Name (Tel. 0123...)") -
- * `splitContactPersonAndPhone()` unten erkennt dieses Altformat rein für
- * die Export-Darstellung per Regex und trennt es wieder auf, OHNE die
+ * `splitContactPersonAndPhone()` (siehe utils/contactPerson.ts - auch von
+ * der Unterschrift-Vorausfüllung in ReportDetail.svelte genutzt, damit
+ * dieselbe Erkennung nicht doppelt existiert) erkennt dieses Altformat rein
+ * für die Darstellung per Regex und trennt es wieder auf, OHNE die
  * gespeicherten Daten selbst zu verändern.
  *
  * FOTOS - EIGENER WEG, KEIN BILD-MODUL: Jede der 10 nummerierten
@@ -159,30 +162,6 @@ function materialRowData(item: MaterialItem): { articleNumber: string; descripti
     quantityUnit: `${item.quantity} ${item.unit}`,
     source: materialSourceLetter(item)
   };
-}
-
-/** Erkennt das alte, inzwischen abgeschaffte Merge-Format "Name (Tel. 0123...)" in `contactPerson` - für Altberichte, die vor Einführung des eigenen `contactPhone`-Felds angelegt wurden. */
-const LEGACY_CONTACT_PERSON_WITH_PHONE = /^(.*\S)\s*\(Tel\.\s*(.+)\)$/;
-
-/**
- * Trennt `contactPerson`/`contactPhone` für den Export auf - rein
- * darstellungsseitig, verändert nie die gespeicherten Daten. Ist
- * `contactPhone` bereits gesetzt (alle seit Einführung dieses Felds
- * angelegten/bearbeiteten Berichte), wird es direkt verwendet. Nur wenn es
- * FEHLT, aber `contactPerson` dem alten, inzwischen abgeschafften Merge-
- * Format "Name (Tel. 0123...)" entspricht (Altberichte von vor diesem
- * Feld), wird es für die Anzeige im Export wieder in Name/Telefonnummer
- * aufgeteilt.
- */
-function splitContactPersonAndPhone(report: FullReport['report']): { contactPerson: string; contactPhone: string } {
-  if (report.contactPhone) {
-    return { contactPerson: report.contactPerson ?? '', contactPhone: report.contactPhone };
-  }
-  const legacyMatch = report.contactPerson ? LEGACY_CONTACT_PERSON_WITH_PHONE.exec(report.contactPerson) : null;
-  if (legacyMatch) {
-    return { contactPerson: legacyMatch[1], contactPhone: legacyMatch[2] };
-  }
-  return { contactPerson: report.contactPerson ?? '', contactPhone: '' };
 }
 
 function buildTemplateData(data: FullReport): Record<string, unknown> {

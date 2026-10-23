@@ -16,6 +16,7 @@
   import { navigate } from '../lib/router.svelte';
   import { debounce } from '../lib/utils/debounce';
   import { formatDateTimeDE, formatDurationMinutes } from '../lib/utils/date';
+  import { splitContactPersonAndPhone } from '../lib/utils/contactPerson';
   import { getTechnicianName, setTechnicianName } from '../lib/settings';
   import TimeClock from '../lib/components/TimeClock.svelte';
   import TimeEntrySection from '../lib/components/TimeEntrySection.svelte';
@@ -89,6 +90,15 @@
   // Sperre bewusst wieder aufheben (unlockManually() bzw. "Entfernen" im
   // Unterschrift-Tab).
   const locked = $derived(!!finalizedAt);
+
+  /**
+   * Reiner Kundenname für die Unterschrift-Vorausfüllung - NICHT einfach
+   * `contactPerson`, da das bei Altberichten von vor Einführung des eigenen
+   * `contactPhone`-Felds noch im abgeschafften Merge-Format "Name (Tel.
+   * 0123...)" gespeichert sein kann (siehe utils/contactPerson.ts, dieselbe
+   * Trennlogik wie im Word-Export).
+   */
+  const signatureDefaultName = $derived(splitContactPersonAndPhone({ contactPerson, contactPhone }).contactPerson);
 
   /**
    * Mannstunden-Soll/Ist-Vergleich für die Übersicht: `plannedLaborHours`
@@ -849,7 +859,7 @@
             {signatureBlob}
             {signedByName}
             {signedAt}
-            defaultName={contactPerson}
+            defaultName={signatureDefaultName}
             onSave={saveSignature}
             onClear={clearSignature}
           />

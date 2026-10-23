@@ -26,7 +26,12 @@ export async function recomputeReportSummary(
     tx.objectStore('photos').index('reportId').getAll(reportId)
   ]);
 
-  report.timeEntryCount = timeEntries.length;
+  // Trotz des Namens (historisch gewachsen, s. ServiceReport.timeEntryCount)
+  // zählt dies die Anzahl UNTERSCHIEDLICHER Kalendertage, nicht die Anzahl
+  // der Zeiteintrags-Datensätze selbst - mehrfaches Ein-/Ausstempeln am
+  // selben Tag (z.B. vormittags/nachmittags getrennt) soll die in der
+  // Übersicht als "Tage" angezeigte Zahl nicht pro Vorgang erhöhen.
+  report.timeEntryCount = new Set(timeEntries.map((entry) => entry.date)).size;
   report.totalDurationMinutes = timeEntries.reduce((sum, entry) => sum + (entry.durationMinutes ?? 0), 0);
   report.materialItemCount = materialItems.length;
   report.photoCount = photos.length;

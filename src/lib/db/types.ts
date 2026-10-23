@@ -28,7 +28,8 @@ export interface ServiceReport {
    * - ältere, so gespeicherte Berichte haben deshalb weiterhin dieses
    * Altformat in `contactPerson` und KEIN `contactPhone`; der Word-Export
    * erkennt das rein darstellungsseitig und trennt es dort wieder auf
-   * (siehe `splitContactPersonAndPhone()` in docxExport.ts) - die
+   * (siehe `splitContactPersonAndPhone()` in utils/contactPerson.ts, auch
+   * von der Unterschrift-Vorausfüllung in ReportDetail.svelte genutzt) - die
    * gespeicherten Daten selbst werden dabei nicht verändert.
    */
   contactPhone?: string;
@@ -75,6 +76,13 @@ export interface ServiceReport {
   /** Zeitpunkt des letzten erfolgreichen Word-Exports/Downloads/Teilens - für die "bereits eingereicht?"-Anzeige in der Übersicht. */
   exportedAt?: ISODateTime;
 
+  /**
+   * Anzahl UNTERSCHIEDLICHER Kalendertage mit mindestens einem Zeiteintrag -
+   * trotz des Namens NICHT die Anzahl der TimeEntry-Datensätze selbst (in
+   * der UI als "Tage" angezeigt, s. ReportCard.svelte/ReportDetail.svelte).
+   * Mehrfaches Ein-/Ausstempeln am selben Tag erhöht diesen Wert deshalb
+   * nur einmal, nicht pro Vorgang - siehe recomputeReportSummary().
+   */
   timeEntryCount: number;
   totalDurationMinutes: number;
   materialItemCount: number;
