@@ -379,6 +379,11 @@
     totalDurationMinutes = report.totalDurationMinutes;
     materialItemCount = report.materialItemCount;
     photoCount = report.photoCount;
+    // Zeiteintrag-Notizen können "Durchgeführte Arbeiten" automatisch
+    // ergänzen (siehe TimeEntrySection.svelte/utils/performedWorkNote.ts) -
+    // ohne diesen Sync bliebe das lokale `performedWork` auf dem Stand vor
+    // dem Tab-Wechsel zur Übersicht stehen, bis die Seite neu geladen wird.
+    performedWork = report.performedWork ?? '';
   }
 
   /**

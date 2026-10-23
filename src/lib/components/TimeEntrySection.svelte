@@ -6,11 +6,12 @@
     listTimeEntries,
     trimOverlappingTimeEntries
   } from '../db/timeEntries';
-  import { getReport } from '../db/reports';
+  import { getReport, updateReport } from '../db/reports';
   import { addManualBreak, updateManualTimeEntry } from '../clockActions';
   import type { TimeEntry } from '../db/types';
   import { centeredBreakWindow, computeDurationMinutes, formatDateDE, formatDurationMinutes, todayISODate } from '../utils/date';
   import { exceedsMaxDailyWork } from '../utils/arbzg';
+  import { appendPerformedWorkLine, formatTimeEntryPerformedWorkLine, shouldAppendPerformedWorkLine } from '../utils/performedWorkNote';
   import Icon from './Icon.svelte';
 
   let { reportId, locked = false, onChanged }: { reportId: string; locked?: boolean; onChanged: () => void } = $props();
@@ -135,6 +136,20 @@
     const endTime = formEnd || undefined;
     const payload = { date: formDate, startTime, endTime, note: formNote };
 
+    // Nur beim ERSTMALIGEN Ausfüllen einer bisher leeren Notiz (neuer
+    // Eintrag, oder nachträgliches erstmaliges Ausfüllen) hängt diese
+    // Funktion unten eine neue Zeile ans Ende von "Durchgeführte Arbeiten"
+    // (ServiceReport.performedWork) an - siehe utils/performedWorkNote.ts
+    // für die genaue Begründung (kein Nachziehen bei jeder Änderung).
+    const previousNote = editingId ? editingOriginal?.note : undefined;
+    async function appendPerformedWorkIfFirstTime(): Promise<void> {
+      if (!shouldAppendPerformedWorkLine(previousNote, formNote)) return;
+      const report = await getReport(reportId);
+      if (!report) return;
+      const line = formatTimeEntryPerformedWorkLine({ date: formDate, startTime, endTime }, formNote);
+      await updateReport(reportId, { performedWork: appendPerformedWorkLine(report.performedWork, line) });
+    }
+
     // Plausibilitätsprüfung nur möglich, wenn Start UND Ende gesetzt sind -
     // sonst gibt es keine vergleichbare Zeitspanne. Prüft berichtsübergreifend
     // (man kann nicht gleichzeitig in zwei Berichten arbeiten), schließt den
@@ -164,6 +179,7 @@
         await persistEntry(payload);
         await trimOverlappingTimeEntries(overlaps, startTime, endTime);
         await applyPauseIfNeeded(startTime, endTime);
+        await appendPerformedWorkIfFirstTime();
         resetForm();
         await load();
         onChanged();
@@ -173,6 +189,7 @@
 
     await persistEntry(payload);
     await applyPauseIfNeeded(startTime, endTime);
+    await appendPerformedWorkIfFirstTime();
     resetForm();
     await load();
     onChanged();
@@ -282,7 +299,7 @@
         </label>
       {/if}
       <label>
-        Notiz (optional)
+        Durchgeführte Arbeiten (optional)
         <textarea rows="2" bind:value={formNote} placeholder="z.B. Fehlersuche, Inbetriebnahme…"></textarea>
       </label>
       <div class="form-actions">
